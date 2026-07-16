@@ -89,3 +89,65 @@ class TestSystemCleaner(unittest.TestCase):
         self.assertTrue(success)
         self.assertEqual(msg, "Cleaned 2 build folder(s)")
         self.assertEqual(mock_rmtree.call_count, 2)
+
+    @patch('pathlib.Path.exists', return_value=True)
+    @patch('pathlib.Path.is_dir', return_value=True)
+    @patch('subprocess.check_output', return_value=b"Archived and active journals take up 120.4MB in the file system.\n")
+    @patch('modules.cleaner.SystemCleaner.get_dir_size', return_value=5000000)
+    def test_scan_success(self, mock_get_size, mock_check_output, mock_is_dir, mock_exists):
+        # We also mock iterdir to return some folders representing dev junk
+        mock_proj = MagicMock()
+        mock_proj.is_dir.return_value = True
+        mock_proj.name = "my_project"
+        mock_proj.__str__.return_value = "/home/user/Projects/my_project"
+        
+        # Iterdir inside search_dirs
+        with patch('pathlib.Path.iterdir', return_value=[mock_proj]):
+            results = self.cleaner.scan()
+            
+        self.assertIn('user_cache', results)
+        self.assertEqual(results['user_cache']['size'], 5000000)
+        self.assertIn('trash', results)
+        self.assertIn('apt_cache', results)
+        self.assertIn('systemd_logs', results)
+        self.assertEqual(results['systemd_logs']['size_str'], "120.4MB")
+        self.assertIn('dev_junk', results)
+
+    def test_clean_item_not_found(self):
+        success, msg = self.cleaner.clean('user_cache', {})
+        self.assertFalse(success)
+        self.assertEqual(msg, "Item not found in scan details")
+
+    @patch('pathlib.Path.exists', return_value=False)
+    def test_clean_user_cache_not_exists(self, mock_exists):
+        scan_details = {'user_cache': {'path': '/non_existent_cache'}}
+        success, msg = self.cleaner.clean('user_cache', scan_details)
+        self.assertFalse(success)
+        self.assertEqual(msg, "Cache directory does not exist")
+
+    @patch('pathlib.Path.exists', return_value=False)
+    def test_clean_trash_not_exists(self, mock_exists):
+        scan_details = {'trash': {'path': '/non_existent_trash'}}
+        success, msg = self.cleaner.clean('trash', scan_details)
+        self.assertFalse(success)
+        self.assertEqual(msg, "Trash directory does not exist")
+
+    @patch('subprocess.run', side_effect=Exception("Execution failed"))
+    def test_clean_apt_cache_all_fail(self, mock_run):
+        scan_details = {'apt_cache': {'path': '/var/cache/apt/archives'}}
+        success, msg = self.cleaner.clean('apt_cache', scan_details)
+        self.assertFalse(success)
+        self.assertIn("Failed to execute", msg)
+
+    @patch('subprocess.run', side_effect=Exception("Execution failed"))
+    def test_clean_systemd_logs_all_fail(self, mock_run):
+        scan_details = {'systemd_logs': {'path': '/var/log/journal'}}
+        success, msg = self.cleaner.clean('systemd_logs', scan_details)
+        self.assertFalse(success)
+        self.assertIn("Failed to execute", msg)
+
+    def test_clean_unknown_item(self):
+        scan_details = {'unknown': {'path': '/some/path'}}
+        success, msg = self.cleaner.clean('unknown', scan_details)
+        self.assertFalse(success)
+        self.assertEqual(msg, "Unknown item")

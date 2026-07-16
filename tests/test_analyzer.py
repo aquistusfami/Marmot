@@ -73,3 +73,48 @@ class TestDiskAnalyzer(unittest.TestCase):
         self.assertEqual(items[1]['name'], 'notes.txt')
         self.assertEqual(items[1]['size'], 300)
         self.assertFalse(items[1]['is_dir'])
+
+    def test_format_size_zero(self):
+        self.assertEqual(self.analyzer.format_size(0), "0 B")
+
+    @patch('os.lstat')
+    def test_recursive_size_file(self, mock_lstat):
+        import stat
+        file_stat = MagicMock()
+        file_stat.st_mode = stat.S_IFREG
+        file_stat.st_size = 750
+        mock_lstat.return_value = file_stat
+        
+        size = self.analyzer._recursive_size('/tmp/somefile')
+        self.assertEqual(size, 750)
+
+    @patch('os.lstat')
+    def test_recursive_size_symlink(self, mock_lstat):
+        import stat
+        link_stat = MagicMock()
+        link_stat.st_mode = stat.S_IFLNK
+        link_stat.st_size = 12
+        mock_lstat.return_value = link_stat
+        
+        size = self.analyzer._recursive_size('/tmp/somelink')
+        self.assertEqual(size, 0)
+
+    @patch('os.lstat', side_effect=OSError("Access denied"))
+    def test_recursive_size_oserror(self, mock_lstat):
+        size = self.analyzer._recursive_size('/tmp/protected')
+        self.assertEqual(size, 0)
+
+    @patch('os.scandir')
+    def test_scan_current_oserror(self, mock_scandir):
+        # entry throws OSError during iteration/stat
+        entry = MagicMock()
+        entry.is_dir.side_effect = OSError("Read error")
+        mock_scandir.return_value = [entry]
+        
+        items = self.analyzer.scan_current()
+        self.assertEqual(len(items), 0)
+
+    @patch('os.scandir', side_effect=Exception("Disk error"))
+    def test_scan_current_exception(self, mock_scandir):
+        items = self.analyzer.scan_current()
+        self.assertEqual(len(items), 0)

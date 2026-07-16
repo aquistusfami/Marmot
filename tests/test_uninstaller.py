@@ -91,3 +91,84 @@ class TestPackageUninstaller(unittest.TestCase):
         success, msg = self.uninstaller.uninstall("curl")
         self.assertFalse(success)
         self.assertIn("Failed to purge package", msg)
+
+    @patch('subprocess.Popen', side_effect=Exception("dpkg-query failed"))
+    def test_list_installed_packages_exception(self, mock_popen):
+        pkgs = self.uninstaller.list_installed_packages()
+        self.assertEqual(len(pkgs), 0)
+
+    @patch('os.walk')
+    def test_find_remnants_os_error_getsize(self, mock_walk):
+        orig_exists = Path.exists
+        orig_is_dir = Path.is_dir
+        
+        target_path = str(Path.home() / ".config" / "curl")
+        
+        def custom_exists(self_path):
+            return str(self_path) == target_path or str(self_path) in [
+                str(Path.home() / ".config"),
+                str(Path.home() / ".local" / "share"),
+                str(Path.home() / ".cache"),
+                str(Path.home())
+            ]
+            
+        def custom_is_dir(self_path):
+            return custom_exists(self_path)
+            
+        Path.exists = custom_exists
+        Path.is_dir = custom_is_dir
+        
+        try:
+            mock_walk.return_value = [
+                ('/home/user/.config/curl', (), ('config.json',)),
+            ]
+            
+            mock_entry = Path(target_path)
+            
+            # Make getsize raise OSError
+            with patch('pathlib.Path.iterdir', return_value=[mock_entry]), \
+                 patch('os.path.getsize', side_effect=OSError("Read error")):
+                remnants = self.uninstaller.find_remnants("curl")
+                
+            self.assertEqual(len(remnants), 1)
+            self.assertEqual(remnants[0]['size'], 0) # Should be 0 since getsize failed
+        finally:
+            Path.exists = orig_exists
+            Path.is_dir = orig_is_dir
+
+    def test_format_size_zero_and_loop(self):
+        self.assertEqual(self.uninstaller.format_size(0), "0 B")
+        self.assertEqual(self.uninstaller.format_size(1024), "1.00 KB")
+
+    @patch('subprocess.run')
+    def test_uninstall_sudo_success(self, mock_run):
+        # First call (pkexec) fails, second call (sudo) succeeds
+        mock_res_fail = MagicMock()
+        mock_res_fail.returncode = 1
+        mock_res_fail.stderr = b"pkexec failed\n"
+        
+        mock_res_ok = MagicMock()
+        mock_res_ok.returncode = 0
+        
+        mock_run.side_effect = [mock_res_fail, mock_res_ok]
+        
+        success, msg = self.uninstaller.uninstall("curl")
+        self.assertTrue(success)
+        self.assertIn("purged successfully (via sudo)", msg)
+
+    @patch('subprocess.run', side_effect=Exception("Execution error"))
+    def test_uninstall_exception(self, mock_run):
+        success, msg = self.uninstaller.uninstall("curl")
+        self.assertFalse(success)
+        self.assertIn("Error during purge execution", msg)
+
+    @patch('subprocess.run')
+    @patch('shutil.rmtree', side_effect=Exception("Delete failed"))
+    def test_uninstall_remnant_exception(self, mock_rmtree, mock_run):
+        mock_res = MagicMock()
+        mock_res.returncode = 0
+        mock_run.return_value = mock_res
+        
+        success, msg = self.uninstaller.uninstall("curl", delete_remnants=["/home/user/.config/curl"])
+        self.assertTrue(success)
+        self.assertNotIn("Cleared user config remnants", msg)

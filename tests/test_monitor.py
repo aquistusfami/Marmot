@@ -122,3 +122,91 @@ class TestSystemMonitor(unittest.TestCase):
         self.assertEqual(usage[0]['used'], 2457600)
         self.assertEqual(usage[0]['available'], 1433600)
         self.assertEqual(usage[0]['percent'], 60.0)
+
+    @patch('builtins.open', new_callable=mock_open, read_data="cpu  100 200 300 400 500 600 700 800\n")
+    def test_get_cpu_usage_delta_zero(self, mock_file):
+        # Set last values equal to what we read to force delta_total = 0
+        self.monitor.last_cpu_idle = 900.0
+        self.monitor.last_cpu_total = 3600.0
+        
+        usage = self.monitor.get_cpu_usage()
+        self.assertEqual(usage, 0.0)
+
+    @patch('builtins.open', new_callable=mock_open, read_data="Inter-|   Receive\n face |bytes\n  lo:    100 1 2 3 4 5 6 7     100 1 2 3 4 5 6 7\n  eth0:    100 1 2 3 4 5 6 7     200 1 2 3 4 5 6 7\n  invalidline\n")
+    def test_get_network_io_skip_lines(self, mock_file):
+        self.monitor.last_net_bytes = {}
+        stats = self.monitor.get_network_io()
+        # Should skip 'lo' and 'invalidline', only having 'eth0'
+        self.assertIn('eth0', stats)
+        self.assertNotIn('lo', stats)
+
+    @patch('builtins.open', side_effect=Exception("Dev read error"))
+    def test_get_network_io_exception(self, mock_file):
+        stats = self.monitor.get_network_io()
+        self.assertEqual(stats, {})
+
+    @patch('os.path.exists')
+    @patch('os.listdir')
+    def test_get_temperature_hwmon(self, mock_listdir, mock_exists):
+        # Simulate thermal classes don't exist but hwmon exists
+        mock_exists.side_effect = lambda path: 'hwmon' in str(path) or 'name' in str(path) or 'temp1_input' in str(path)
+        
+        def custom_listdir(path):
+            if str(path) == '/sys/class/hwmon':
+                return ['hwmon0']
+            elif str(path) == '/sys/class/hwmon/hwmon0':
+                return ['name', 'temp1_input']
+            return []
+        mock_listdir.side_effect = custom_listdir
+        
+        def mock_open_hwmon(path, mode='r'):
+            if 'name' in str(path):
+                return mock_open(read_data="coretemp\n")()
+            elif 'temp1_input' in str(path):
+                return mock_open(read_data="38000\n")()
+            raise FileNotFoundError()
+            
+        with patch('builtins.open', side_effect=mock_open_hwmon):
+            temp = self.monitor.get_temperature()
+            self.assertEqual(temp, 38.0)
+
+    @patch('os.path.exists')
+    @patch('os.listdir')
+    def test_get_battery_info_current_voltage_fallback(self, mock_listdir, mock_exists):
+        # BAT0 exists with current_now and voltage_now instead of power_now
+        mock_exists.side_effect = lambda path: str(path).endswith('power_supply') or \
+                                               str(path).endswith('BAT0') or \
+                                               str(path).endswith('capacity') or \
+                                               str(path).endswith('status') or \
+                                               str(path).endswith('current_now') or \
+                                               str(path).endswith('voltage_now')
+        mock_listdir.return_value = ['BAT0']
+        
+        def mock_open_bat(path, mode='r'):
+            if 'capacity' in str(path):
+                return mock_open(read_data="90\n")()
+            elif 'status' in str(path):
+                return mock_open(read_data="Charging\n")()
+            elif 'current_now' in str(path):
+                return mock_open(read_data="2000000\n")() # 2A
+            elif 'voltage_now' in str(path):
+                return mock_open(read_data="12000000\n")() # 12V
+            raise FileNotFoundError()
+            
+        with patch('builtins.open', side_effect=mock_open_bat):
+            bat = self.monitor.get_battery_info()
+            self.assertTrue(bat['present'])
+            self.assertEqual(bat['capacity'], 90)
+            self.assertEqual(bat['status'], "Charging")
+            # power = 2000000 * 12000000 / 1e12 = 24.0W
+            self.assertEqual(bat['power'], 24.0)
+
+    @patch('os.path.exists', side_effect=Exception("Power Supply read error"))
+    def test_get_battery_info_exception(self, mock_exists):
+        bat = self.monitor.get_battery_info()
+        self.assertFalse(bat['present'])
+
+    @patch('builtins.open', side_effect=Exception("Mounts read error"))
+    def test_get_disk_usage_exception(self, mock_file):
+        usage = self.monitor.get_disk_usage()
+        self.assertEqual(usage, [])
