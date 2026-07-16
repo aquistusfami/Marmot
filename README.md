@@ -4,8 +4,8 @@
 </div>
 
 <p align="center">
-  <a href="https://github.com/aquistus/Marmot/stargazers"><img src="https://img.shields.io/github/stars/aquistus/Marmot?style=flat-square" alt="Stars"></a>
-  <a href="https://github.com/aquistus/Marmot/releases"><img src="https://img.shields.io/github/v/tag/aquistus/Marmot?label=version&style=flat-square" alt="Version"></a>
+  <a href="https://github.com/aquistusfami/Marmot/stargazers"><img src="https://img.shields.io/github/stars/aquistusfami/Marmot?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/aquistusfami/Marmot/releases"><img src="https://img.shields.io/github/v/tag/aquistusfami/Marmot?label=version&style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL_v3-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://www.debian.org/"><img src="https://img.shields.io/badge/platform-Debian_Linux-red?style=flat-square&logo=Debian" alt="Debian"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/language-Python_3.13-blue?style=flat-square&logo=Python" alt="Python"></a>
@@ -38,7 +38,7 @@ sudo apt update && sudo apt install -y python3-venv python3-pip
 **Clone and Setup**
 
 ```bash
-git clone https://github.com/aquistus/Marmot.git ~/Marmot
+git clone https://github.com/aquistusfami/Marmot.git ~/Marmot
 cd ~/Marmot
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
