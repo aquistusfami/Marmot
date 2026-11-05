@@ -1,127 +1,155 @@
+"""Maintenance tasks. Each task first checks whether it applies on this machine (and says why not),
+so the UI never offers a button that does nothing or something harmful."""
+import shutil
 import subprocess
+
+from marmot.privilege import run_root
+
+# swapoff + swapon one device at a time, restoring its priority; devices/priorities are argv, never spliced
+_SWAP_CYCLE = ('set -e; while [ $# -gt 1 ]; do swapoff "$1"; '
+               'if [ "$2" -ge 0 ] 2>/dev/null; then swapon -p "$2" "$1"; else swapon "$1"; fi; shift 2; done')
+
+TASKS = [
+    {'id': 'trim', 'name': "Trim SSDs",
+     'desc': "Tells SSDs which blocks are free (fstrim -av), keeping write speed up. Safe on every filesystem that supports it."},
+    {'id': 'swap', 'name': "Reclaim swap",
+     'desc': "Moves swapped-out pages back into RAM, one swap device at a time, and re-enables each with the same priority "
+             "(zram included). Only offered when RAM can hold it."},
+    {'id': 'dns', 'name': "Flush DNS cache",
+     'desc': "Clears the local resolver cache (systemd-resolved or nscd), e.g. after changing DNS servers or /etc/hosts."},
+    {'id': 'failed', 'name': "Clear failed services",
+     'desc': "Clears systemd's failed state so the list starts fresh. This does not fix the services: read their logs first."},
+    {'id': 'drop_caches', 'name': "Drop page cache",
+     'desc': "For benchmarking only. The kernel already frees this cache on demand, so dropping it makes the system "
+             "slower until the cache refills."},
+]
+
+
+def _fmt(kb: int) -> str:
+    return f"{kb / 1024**2:.1f} GB" if kb >= 1024**2 else f"{kb / 1024:.0f} MB"
+
+
+def _out(cmd: list) -> tuple[int, str]:
+    try:
+        res = subprocess.run(cmd, capture_output=True, timeout=15)
+        return res.returncode, res.stdout.decode(errors="ignore")
+    except (OSError, subprocess.SubprocessError):
+        return 127, ""
+
+
+def read_swaps(text: str | None = None) -> list:
+    """/proc/swaps -> [{name, used_kb, prio}] (paths with spaces are \\040-escaped by the kernel)."""
+    if text is None:
+        try:
+            with open("/proc/swaps") as f:
+                text = f.read()
+        except OSError:
+            return []
+    swaps = []
+    for line in text.splitlines()[1:]:
+        cols = line.split()
+        if len(cols) >= 5:
+            swaps.append({'name': cols[0].replace("\\040", " "), 'used_kb': int(cols[3]), 'prio': int(cols[4])})
+    return swaps
+
+
+def mem_available_kb() -> int:
+    try:
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    return int(line.split()[1])
+    except OSError:
+        pass
+    return 0
 
 
 class SystemOptimizer:
-    def __init__(self):
-        pass
-        
     def get_optimizations(self) -> list:
-        return [
-            {
-                'id': 'drop_caches',
-                'name': "Drop RAM Memory Cache",
-                'desc': "Frees system page cache, dentries, and inodes. Safe to run at any time.",
-                'requires_sudo': True
-            },
-            {
-                'id': 'flush_dns',
-                'name': "Flush DNS Cache",
-                'desc': "Flushes resolvectl or nscd local DNS query caches. Useful for resolving connection issues.",
-                'requires_sudo': True
-            },
-            {
-                'id': 'reset_services',
-                'name': "Reset Failed Systemd Services",
-                'desc': "Resets failed state of all systemd services that ran into errors.",
-                'requires_sudo': True
-            },
-            {
-                'id': 'swap_reset',
-                'name': "Reclaim Swap space",
-                'desc': "Flushes data in swap back into physical RAM. Safe if free memory is sufficient.",
-                'requires_sudo': True
-            }
-        ]
+        return [dict(t) for t in TASKS]
 
-    def run_optimization(self, opt_id: str) -> tuple[bool, str]:
-        if opt_id == 'drop_caches':
-            try:
-                # Sync first
-                subprocess.run(["sync"], check=True)
-                # Drop caches
-                cmd = ["pkexec", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"]
-                subprocess.run(cmd, check=True)
-                return True, "RAM page cache dropped successfully"
-            except Exception:
-                try:
-                    subprocess.run(["sudo", "-n", "sh", "-c", "echo 3 > /proc/sys/vm/drop_caches"], check=True)
-                    return True, "RAM page cache dropped successfully (via sudo)"
-                except Exception as e:
-                    return False, f"Failed. Sudo privileges required. Error: {str(e)}"
-                    
-        elif opt_id == 'flush_dns':
-            # Check resolved
-            resolved_active = False
-            try:
-                subprocess.run(["systemctl", "is-active", "--quiet", "systemd-resolved"], check=True)
-                resolved_active = True
-            except Exception:
-                pass
-                
-            if resolved_active:
-                try:
-                    subprocess.run(["pkexec", "resolvectl", "flush-caches"], check=True)
-                    return True, "DNS cache flushed via resolvectl"
-                except Exception:
-                    try:
-                        subprocess.run(["sudo", "-n", "resolvectl", "flush-caches"], check=True)
-                        return True, "DNS cache flushed via resolvectl (via sudo)"
-                    except Exception as e:
-                        return False, f"Failed to run resolvectl. Error: {str(e)}"
-            else:
-                # Try nscd
-                try:
-                    subprocess.run(["pkexec", "systemctl", "restart", "nscd"], check=True)
-                    return True, "DNS cache flushed by restarting nscd service"
-                except Exception:
-                    try:
-                        subprocess.run(["sudo", "-n", "systemctl", "restart", "nscd"], check=True)
-                        return True, "DNS cache flushed by restarting nscd service (via sudo)"
-                    except Exception as e:
-                        return False, f"Failed to flush DNS cache. Neither systemd-resolved nor nscd is running. Error: {str(e)}"
-                        
-        elif opt_id == 'reset_services':
-            try:
-                subprocess.run(["pkexec", "systemctl", "reset-failed"], check=True)
-                return True, "Failed Systemd services status reset successfully"
-            except Exception:
-                try:
-                    subprocess.run(["sudo", "-n", "systemctl", "reset-failed"], check=True)
-                    return True, "Failed Systemd services status reset successfully (via sudo)"
-                except Exception as e:
-                    return False, f"Failed. Sudo privileges required. Error: {str(e)}"
-                    
-        elif opt_id == 'swap_reset':
-            # Check memory first
-            try:
-                # Get free memory and swap used
-                with open("/proc/meminfo") as f:
-                    meminfo = f.read()
-                lines = meminfo.split("\n")
-                mem_free = 0
-                swap_used = 0
-                for line in lines:
-                    if "MemAvailable:" in line or "MemFree:" in line and mem_free == 0:
-                        mem_free = int(line.split()[1]) * 1024 # B
-                    if "SwapTotal:" in line:
-                        st = int(line.split()[1]) * 1024
-                    if "SwapFree:" in line:
-                        sf = int(line.split()[1]) * 1024
-                        swap_used = st - sf
-                        
-                if mem_free < swap_used:
-                    return False, f"Safety warning: Free RAM ({mem_free // 1024 // 1024}MB) is less than Swap used ({swap_used // 1024 // 1024}MB). Resetting swap might crash your system!"
-                    
-                # Run swapoff and swapon
-                subprocess.run(["pkexec", "swapoff", "-a"], check=True)
-                subprocess.run(["pkexec", "swapon", "-a"], check=True)
-                return True, "Swap space reclaimed and cycled successfully"
-            except Exception:
-                try:
-                    subprocess.run(["sudo", "-n", "swapoff", "-a"], check=True)
-                    subprocess.run(["sudo", "-n", "swapon", "-a"], check=True)
-                    return True, "Swap space reclaimed and cycled successfully (via sudo)"
-                except Exception as e:
-                    return False, f"Failed. Sudo privileges required. Error: {str(e)}"
-                    
-        return False, "Unknown optimization ID"
+    # ---- checks: {'applicable': bool, 'status': str} -----------------------
+
+    def check(self, task_id: str) -> dict:
+        return getattr(self, f"_check_{task_id}")()
+
+    def _check_trim(self) -> dict:
+        if not shutil.which("fstrim"):
+            return {'applicable': False, 'status': "fstrim is not installed (util-linux)."}
+        rc, _ = _out(["systemctl", "is-enabled", "fstrim.timer"])
+        timer = "weekly fstrim.timer is enabled, so this is rarely needed" if rc == 0 else "fstrim.timer is not enabled"
+        return {'applicable': True, 'status': timer.capitalize() + "."}
+
+    def _check_swap(self) -> dict:
+        swaps = read_swaps()
+        if not swaps:
+            return {'applicable': False, 'status': "No swap is configured."}
+        used = sum(s['used_kb'] for s in swaps)
+        if used == 0:
+            return {'applicable': False, 'status': f"Nothing in swap ({', '.join(s['name'] for s in swaps)})."}
+        avail = mem_available_kb()
+        if avail < used * 1.5:  # margin so pulling pages back cannot push the system into OOM
+            return {'applicable': False,
+                    'status': f"{_fmt(used)} in swap but only {_fmt(avail)} RAM available: not safe."}
+        return {'applicable': True, 'status': f"{_fmt(used)} in swap, {_fmt(avail)} RAM available."}
+
+    def _dns_backend(self) -> list | None:
+        if _out(["systemctl", "is-active", "--quiet", "systemd-resolved"])[0] == 0:
+            return ["resolvectl", "flush-caches"]
+        if _out(["systemctl", "is-active", "--quiet", "nscd"])[0] == 0:
+            return ["nscd", "--invalidate=hosts"]
+        return None
+
+    def _check_dns(self) -> dict:
+        cmd = self._dns_backend()
+        if cmd is None:
+            return {'applicable': False,
+                    'status': "No local DNS cache running (systemd-resolved/nscd): nothing to flush."}
+        return {'applicable': True, 'status': f"Uses {cmd[0]}."}
+
+    def failed_units(self) -> list:
+        _, out = _out(["systemctl", "--failed", "--no-legend", "--plain"])
+        return [ln.split()[0] for ln in out.splitlines() if ln.strip()]
+
+    def _check_failed(self) -> dict:
+        units = self.failed_units()
+        if not units:
+            return {'applicable': False, 'status': "No failed services."}
+        return {'applicable': True, 'status': f"{len(units)} failed: {', '.join(units[:5])}"
+                                              f"{'...' if len(units) > 5 else ''}"}
+
+    def _check_drop_caches(self) -> dict:
+        return {'applicable': True, 'status': "Not recommended for normal use."}
+
+    # ---- run -------------------------------------------------------------------
+
+    def command(self, task_id: str) -> list | None:
+        """The root command a task would run (None if not applicable now)."""
+        if task_id == 'trim':
+            return ["fstrim", "-av"]
+        if task_id == 'swap':
+            argv = [x for s in read_swaps() if s['used_kb'] > 0 for x in (s['name'], str(s['prio']))]
+            return ["sh", "-c", _SWAP_CYCLE, "sh", *argv] if argv else None
+        if task_id == 'dns':
+            return self._dns_backend()
+        if task_id == 'failed':
+            return ["systemctl", "reset-failed"]
+        if task_id == 'drop_caches':
+            return ["sh", "-c", "sync && echo 3 > /proc/sys/vm/drop_caches"]
+        raise KeyError(task_id)
+
+    def run_optimization(self, task_id: str, dry_run: bool = False) -> tuple[bool, str]:
+        state = self.check(task_id)
+        if not state['applicable']:
+            return False, f"Skipped: {state['status']}"
+        cmd = self.command(task_id)
+        if cmd is None:
+            return False, "Skipped: nothing to do."
+        if dry_run:
+            shown = cmd[:2] + ["…"] if cmd[0] == "sh" else cmd
+            return True, f"Would run as root: {' '.join(shown)}"
+        ok, via, out = run_root(cmd)
+        name = next(t['name'] for t in TASKS if t['id'] == task_id)
+        if not ok:
+            return False, f"{name} failed: {out}"
+        return True, f"{name} done{via}" + (f": {out}" if out else "")

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from marmot import pkgmgr, trash
+from marmot.privilege import run_root
 
 # the virtualenv Marmot itself runs from (repo .venv, pipx/uv tool env): never offered as junk
 RUNNING_VENV = Path(sys.prefix).resolve()
@@ -32,18 +33,6 @@ def parse_size(text: str) -> int:
     """'1.2GB', '120.4M', '3.5 GiB', '0B' -> bytes (binary units); UNKNOWN if unparsable."""
     m = re.match(r"\s*([\d.]+)\s*([KMGT]?)i?B?\b", text, re.I)
     return int(float(m[1]) * _UNITS[m[2].upper()]) if m else UNKNOWN
-
-
-def run_root(cmd: list) -> tuple[bool, str, str]:
-    """pkexec first, then passwordless sudo. Returns (ok, " (via sudo)" or "", stdout-or-error)."""
-    err = ""
-    for prefix, suffix in ((["pkexec"], ""), (["sudo", "-n"], " (via sudo)")):
-        try:
-            res = subprocess.run([*prefix, *cmd], check=True, capture_output=True)
-            return True, suffix, res.stdout.decode("utf-8", errors="ignore").strip()
-        except Exception as e:
-            err = str(e)
-    return False, "", err
 
 
 class SystemCleaner:

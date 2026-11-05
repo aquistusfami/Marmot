@@ -65,5 +65,58 @@ class TestAppSmoke(unittest.TestCase):
         run(go())
 
 
+class TestAppSafety(unittest.TestCase):
+    def test_clean_asks_for_confirmation_and_cancel_does_nothing(self):
+        async def go():
+            app = MarmotApp()
+            with patch.object(app.cleaner, "scan", return_value=FAKE_SCAN), \
+                 patch.object(app.cleaner, "clean", return_value=(True, "done")) as clean:
+                async with app.run_test(size=(140, 45)) as pilot:
+                    await pilot.press("2")
+                    await pilot.click("#btn-clean-scan")
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    await pilot.click("#btn-clean-run")
+                    await pilot.pause()
+                    self.assertEqual(type(app.screen).__name__, "ConfirmScreen")
+                    await pilot.press("escape")
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    clean.assert_not_called()
+        run(go())
+
+    def test_analyzer_refuses_trash_outside_home(self):
+        import tempfile
+        from pathlib import Path
+
+        async def go():
+            app = MarmotApp()
+            with tempfile.TemporaryDirectory() as outside, \
+                 patch("marmot.trash.move_to_trash") as mv:
+                Path(outside, "f").write_text("x")
+                async with app.run_test(size=(140, 45)) as pilot:
+                    app.analyzer.set_path(outside)
+                    await pilot.press("4")
+                    app.refresh_analyzer()
+                    await app.workers.wait_for_complete()
+                    await pilot.pause()
+                    app.analyzer_list.index = 0
+                    app.action_analyzer_trash()
+                    await pilot.pause()
+                    self.assertNotEqual(type(app.screen).__name__, "ConfirmScreen")
+                mv.assert_not_called()
+        run(go())
+
+    def test_number_keys_switch_tabs(self):
+        async def go():
+            app = MarmotApp()
+            async with app.run_test(size=(140, 45)) as pilot:
+                for key, tab in (("5", "pane-optimizer"), ("3", "pane-uninstaller"), ("1", "pane-monitor")):
+                    await pilot.press(key)
+                    await pilot.pause()
+                    self.assertEqual(app.query_one(TabbedContent).active, tab)
+        run(go())
+
+
 if __name__ == "__main__":
     unittest.main()

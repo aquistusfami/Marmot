@@ -88,6 +88,24 @@ def cmd_clean(args) -> int:
     return rc
 
 
+def cmd_optimize(args) -> int:
+    from marmot.optimizer import SystemOptimizer
+    opt = SystemOptimizer()
+    ids = [t['id'] for t in opt.get_optimizations()]
+    if not args.task:
+        for t in opt.get_optimizations():
+            st = opt.check(t['id'])
+            print(f"{'●' if st['applicable'] else '○'} {t['id']:<12} {t['name']:<22} {st['status']}")
+        print("\nRun with: marmot optimize <id> [--dry-run]")
+        return 0
+    if args.task not in ids:
+        print(f"Unknown task {args.task!r}. Available: {', '.join(ids)}", file=sys.stderr)
+        return 2
+    ok, msg = opt.run_optimization(args.task, dry_run=args.dry_run)
+    print(f"{'✓' if ok else '✗'} {msg}")
+    return 0 if ok else 1
+
+
 def cmd_undo(args) -> int:
     entry, restored, errors = trash.undo_last()
     if entry is None:
@@ -129,6 +147,11 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--permanent", action="store_true", help="delete developer files instead of moving them to Trash")
     s.add_argument("--keep-cache", nargs="+", metavar="NAME", default=[], help="~/.cache folders to keep")
     s.set_defaults(func=cmd_clean)
+
+    s = sub.add_parser("optimize", help="list maintenance tasks with their status, or run one")
+    s.add_argument("task", nargs="?", metavar="ID")
+    s.add_argument("-n", "--dry-run", action="store_true")
+    s.set_defaults(func=cmd_optimize)
 
     s = sub.add_parser("undo", help="restore what the last clean/uninstall moved to Trash")
     s.set_defaults(func=cmd_undo)

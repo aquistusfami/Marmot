@@ -68,6 +68,7 @@ marmot clean user_cache dev_junk --dry-run
 marmot clean user_cache --keep-cache mozilla yay --yes
 marmot undo                               # restore what the last action moved to Trash
 marmot history
+marmot optimize [ID] [--dry-run]           # maintenance tasks and whether they apply
 ```
 
 ### Keyboard Navigation & Controls

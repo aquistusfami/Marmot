@@ -19,7 +19,7 @@ class PackageUninstaller:
         out, _ = process.communicate()
         return [{**p, 'source': source} for p in pm['parse_list'](out.decode("utf-8", errors="ignore"))]
 
-    def list_installed_packages(self, search_query: str = "") -> list:
+    def list_installed_packages(self, search_query: str = "", limit: int | None = 60) -> list:
         packages = []
         q = search_query.lower()
         for pm, source in ((self.pm, 'system'), (self.flatpak, 'flatpak')):
@@ -31,7 +31,7 @@ class PackageUninstaller:
             except Exception:
                 pass
         packages.sort(key=lambda x: x['name'])
-        return packages[:60] # limit for smooth TUI scrolling
+        return packages[:limit]
 
     def preview_removal(self, package_name: str, source: str = 'system') -> list | None:
         """Packages the package manager would remove (dependants/orphans included), or None on error."""

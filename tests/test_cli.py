@@ -51,3 +51,15 @@ def test_status_json(capsys):
 
 def test_undo_nothing():
     assert cli.main(["undo"]) == 1
+
+
+def test_optimize_list_and_unknown(capsys):
+    assert cli.main(["optimize"]) == 0
+    assert "drop_caches" in capsys.readouterr().out
+    assert cli.main(["optimize", "nope"]) == 2
+
+
+def test_optimize_dry_run_never_runs_root():
+    with patch('marmot.optimizer.run_root') as root:
+        cli.main(["optimize", "drop_caches", "--dry-run"])
+    root.assert_not_called()
