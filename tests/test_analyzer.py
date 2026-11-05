@@ -1,8 +1,9 @@
-import os
 import unittest
-from unittest.mock import patch, MagicMock
 from pathlib import Path
-from modules.analyzer import DiskAnalyzer
+from unittest.mock import MagicMock, patch
+
+from marmot.analyzer import DiskAnalyzer
+
 
 class TestDiskAnalyzer(unittest.TestCase):
     def setUp(self):
@@ -45,7 +46,7 @@ class TestDiskAnalyzer(unittest.TestCase):
         self.assertEqual(size, 1000)
 
     @patch('os.scandir')
-    @patch('modules.analyzer.DiskAnalyzer._recursive_size', return_value=1200)
+    @patch('marmot.analyzer.DiskAnalyzer._recursive_size', return_value=1200)
     def test_scan_current(self, mock_rec_size, mock_scandir):
         # Mock directory entry
         entry_dir = MagicMock()

@@ -1,13 +1,13 @@
-import os
-import shutil
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
 from pathlib import Path
-from modules.cleaner import SystemCleaner
+from unittest.mock import MagicMock, patch
+
+from marmot.cleaner import SystemCleaner
+
 
 class TestSystemCleaner(unittest.TestCase):
     def setUp(self):
-        self.cleaner = SystemCleaner()
+        self.cleaner = SystemCleaner(backend="apt")
 
     def test_format_size(self):
         self.assertEqual(self.cleaner.format_size(0), "0 B")
@@ -61,8 +61,8 @@ class TestSystemCleaner(unittest.TestCase):
         mock_res.returncode = 0
         mock_run.return_value = mock_res
         
-        scan_details = {'apt_cache': {'path': '/var/cache/apt/archives'}}
-        success, msg = self.cleaner.clean('apt_cache', scan_details)
+        scan_details = {'pkg_cache': {'path': '/var/cache/apt/archives'}}
+        success, msg = self.cleaner.clean('pkg_cache', scan_details)
         self.assertTrue(success)
         self.assertIn("Apt packages cache cleaned successfully", msg)
 
@@ -93,7 +93,7 @@ class TestSystemCleaner(unittest.TestCase):
     @patch('pathlib.Path.exists', return_value=True)
     @patch('pathlib.Path.is_dir', return_value=True)
     @patch('subprocess.check_output', return_value=b"Archived and active journals take up 120.4MB in the file system.\n")
-    @patch('modules.cleaner.SystemCleaner.get_dir_size', return_value=5000000)
+    @patch('marmot.cleaner.SystemCleaner.get_dir_size', return_value=5000000)
     def test_scan_success(self, mock_get_size, mock_check_output, mock_is_dir, mock_exists):
         # We also mock iterdir to return some folders representing dev junk
         mock_proj = MagicMock()
@@ -108,7 +108,7 @@ class TestSystemCleaner(unittest.TestCase):
         self.assertIn('user_cache', results)
         self.assertEqual(results['user_cache']['size'], 5000000)
         self.assertIn('trash', results)
-        self.assertIn('apt_cache', results)
+        self.assertIn('pkg_cache', results)
         self.assertIn('systemd_logs', results)
         self.assertEqual(results['systemd_logs']['size_str'], "120.4MB")
         self.assertIn('dev_junk', results)
@@ -134,8 +134,8 @@ class TestSystemCleaner(unittest.TestCase):
 
     @patch('subprocess.run', side_effect=Exception("Execution failed"))
     def test_clean_apt_cache_all_fail(self, mock_run):
-        scan_details = {'apt_cache': {'path': '/var/cache/apt/archives'}}
-        success, msg = self.cleaner.clean('apt_cache', scan_details)
+        scan_details = {'pkg_cache': {'path': '/var/cache/apt/archives'}}
+        success, msg = self.cleaner.clean('pkg_cache', scan_details)
         self.assertFalse(success)
         self.assertIn("Failed to execute", msg)
 

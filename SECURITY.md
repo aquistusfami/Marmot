@@ -1,6 +1,6 @@
 # Security Policy
 
-Marmot is a local system maintenance tool for Debian Linux. It includes high-risk operations such as cache cleanup, package purging, service optimization, and directory analysis. We treat safety boundaries, deletion logic, privilege escalation boundaries, and release integrity as security-sensitive areas.
+Marmot is a local system maintenance tool for Linux (apt and pacman based distributions). It includes high-risk operations such as cache cleanup, package purging, service optimization, and directory analysis. We treat safety boundaries, deletion logic, privilege escalation boundaries, and release integrity as security-sensitive areas.
 
 ## Reporting a Vulnerability
 
@@ -16,7 +16,7 @@ If GitHub Security Advisories private reporting is enabled for the repository, y
 Include as much of the following as possible:
 
 - Marmot version and install method
-- Debian / OS version
+- Distribution and version
 - Exact command or workflow involved
 - Reproduction steps or proof of concept
 - Whether the issue involves deletion boundaries, symlinks, pkexec/sudo privilege escalation, path validation, or release/install integrity

@@ -1,5 +1,6 @@
 import subprocess
 
+
 class SystemOptimizer:
     def __init__(self):
         pass
@@ -94,7 +95,7 @@ class SystemOptimizer:
             # Check memory first
             try:
                 # Get free memory and swap used
-                with open("/proc/meminfo", "r") as f:
+                with open("/proc/meminfo") as f:
                     meminfo = f.read()
                 lines = meminfo.split("\n")
                 mem_free = 0

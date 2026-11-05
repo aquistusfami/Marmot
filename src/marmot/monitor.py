@@ -1,5 +1,6 @@
-import time
 import os
+import time
+
 
 class SystemMonitor:
     def __init__(self):
@@ -14,7 +15,7 @@ class SystemMonitor:
         
     def get_cpu_usage(self) -> float:
         try:
-            with open('/proc/stat', 'r') as f:
+            with open('/proc/stat') as f:
                 line = f.readline()
             parts = line.split()
             if len(parts) > 4:
@@ -38,7 +39,7 @@ class SystemMonitor:
     def get_memory_info(self) -> dict:
         mem = {}
         try:
-            with open('/proc/meminfo', 'r') as f:
+            with open('/proc/meminfo') as f:
                 for line in f:
                     parts = line.split(':')
                     if len(parts) == 2:
@@ -74,7 +75,7 @@ class SystemMonitor:
         stats = {}
         now = time.time()
         try:
-            with open('/proc/net/dev', 'r') as f:
+            with open('/proc/net/dev') as f:
                 lines = f.readlines()
             for line in lines[2:]: # skip headers
                 if ':' not in line:
@@ -121,10 +122,10 @@ class SystemMonitor:
                         type_path = os.path.join(base_dir, d, 'type')
                         temp_path = os.path.join(base_dir, d, 'temp')
                         if os.path.exists(type_path) and os.path.exists(temp_path):
-                            with open(type_path, 'r') as f:
+                            with open(type_path) as f:
                                 t_type = f.read().strip()
                             if 'cpu' in t_type.lower() or 'pkg' in t_type.lower() or 'acpitz' in t_type.lower():
-                                with open(temp_path, 'r') as f:
+                                with open(temp_path) as f:
                                     temp_raw = float(f.read().strip())
                                 return temp_raw / 1000.0
                                 
@@ -134,12 +135,12 @@ class SystemMonitor:
                     h_path = os.path.join(hwmon_dir, h)
                     name_path = os.path.join(h_path, 'name')
                     if os.path.exists(name_path):
-                        with open(name_path, 'r') as f:
+                        with open(name_path) as f:
                             name = f.read().strip()
                         if 'temp' in name or 'core' in name or 'cpu' in name:
                             for file in os.listdir(h_path):
                                 if file.startswith('temp') and file.endswith('_input'):
-                                    with open(os.path.join(h_path, file), 'r') as f:
+                                    with open(os.path.join(h_path, file)) as f:
                                         temp_raw = float(f.read().strip())
                                     return temp_raw / 1000.0
         except Exception:
@@ -164,17 +165,17 @@ class SystemMonitor:
                         power = None
                         
                         if os.path.exists(cap_path):
-                            with open(cap_path, 'r') as f:
+                            with open(cap_path) as f:
                                 cap = int(f.read().strip())
                         if os.path.exists(stat_path):
-                            with open(stat_path, 'r') as f:
+                            with open(stat_path) as f:
                                 status = f.read().strip()
                                 
                         if os.path.exists(power_path):
-                            with open(power_path, 'r') as f:
+                            with open(power_path) as f:
                                 power = float(f.read().strip()) / 1000000.0
                         elif os.path.exists(current_path) and os.path.exists(volt_path):
-                            with open(current_path, 'r') as f1, open(volt_path, 'r') as f2:
+                            with open(current_path) as f1, open(volt_path) as f2:
                                 current = float(f1.read().strip())
                                 voltage = float(f2.read().strip())
                                 power = (current * voltage) / 1000000000000.0
@@ -192,7 +193,7 @@ class SystemMonitor:
     def get_disk_usage(self) -> list:
         partitions = []
         try:
-            with open('/proc/mounts', 'r') as f:
+            with open('/proc/mounts') as f:
                 for line in f:
                     parts = line.split()
                     if len(parts) >= 3:

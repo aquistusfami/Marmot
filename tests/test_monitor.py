@@ -1,12 +1,12 @@
-import os
-import tempfile
 import unittest
-from unittest.mock import patch, mock_open, MagicMock
-from modules.monitor import SystemMonitor
+from unittest.mock import MagicMock, mock_open, patch
+
+from marmot.monitor import SystemMonitor
+
 
 class TestSystemMonitor(unittest.TestCase):
-    @patch('modules.monitor.SystemMonitor.get_cpu_usage', return_value=0.0)
-    @patch('modules.monitor.SystemMonitor.get_network_io', return_value={})
+    @patch('marmot.monitor.SystemMonitor.get_cpu_usage', return_value=0.0)
+    @patch('marmot.monitor.SystemMonitor.get_network_io', return_value={})
     def setUp(self, mock_net, mock_cpu):
         self.monitor = SystemMonitor()
 

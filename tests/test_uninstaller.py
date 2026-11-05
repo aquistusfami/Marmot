@@ -1,13 +1,13 @@
-import os
-import shutil
 import unittest
-from unittest.mock import patch, MagicMock
 from pathlib import Path
-from modules.uninstaller import PackageUninstaller
+from unittest.mock import MagicMock, patch
+
+from marmot.uninstaller import PackageUninstaller
+
 
 class TestPackageUninstaller(unittest.TestCase):
     def setUp(self):
-        self.uninstaller = PackageUninstaller()
+        self.uninstaller = PackageUninstaller(backend="apt")
 
     @patch('subprocess.Popen')
     def test_list_installed_packages(self, mock_popen):
@@ -74,11 +74,11 @@ class TestPackageUninstaller(unittest.TestCase):
         mock_res.returncode = 0
         mock_run.return_value = mock_res
         
-        success, msg = self.uninstaller.uninstall("curl", delete_remnants=["/home/user/.config/curl"])
+        success, msg = self.uninstaller.uninstall("curl", delete_remnants=[str(Path.home() / ".config" / "curl")])
         self.assertTrue(success)
         self.assertIn("purged successfully", msg)
         self.assertIn("Cleared user config remnants", msg)
-        mock_rmtree.assert_called_once_with("/home/user/.config/curl", ignore_errors=True)
+        mock_rmtree.assert_called_once_with(str(Path.home() / ".config" / "curl"), ignore_errors=True)
 
     @patch('subprocess.run')
     def test_uninstall_failure(self, mock_run):
@@ -169,6 +169,6 @@ class TestPackageUninstaller(unittest.TestCase):
         mock_res.returncode = 0
         mock_run.return_value = mock_res
         
-        success, msg = self.uninstaller.uninstall("curl", delete_remnants=["/home/user/.config/curl"])
+        success, msg = self.uninstaller.uninstall("curl", delete_remnants=[str(Path.home() / ".config" / "curl")])
         self.assertTrue(success)
         self.assertNotIn("Cleared user config remnants", msg)

@@ -1,6 +1,8 @@
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
-from modules.optimizer import SystemOptimizer
+from unittest.mock import MagicMock, mock_open, patch
+
+from marmot.optimizer import SystemOptimizer
+
 
 class TestSystemOptimizer(unittest.TestCase):
     def setUp(self):
@@ -106,7 +108,6 @@ class TestSystemOptimizer(unittest.TestCase):
 
     @patch('subprocess.run')
     def test_flush_dns_resolved_fallback_sudo_success(self, mock_run):
-        import subprocess
         mock_res_ok = MagicMock()
         mock_res_ok.returncode = 0
         
@@ -122,7 +123,6 @@ class TestSystemOptimizer(unittest.TestCase):
 
     @patch('subprocess.run')
     def test_flush_dns_resolved_all_fail(self, mock_run):
-        import subprocess
         mock_res_ok = MagicMock()
         mock_res_ok.returncode = 0
         

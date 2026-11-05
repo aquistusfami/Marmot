@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 
+
 class DiskAnalyzer:
     def __init__(self):
         self.current_path = Path.home()
@@ -30,7 +31,7 @@ class DiskAnalyzer:
             elif stat.S_ISLNK(st.st_mode):
                 return 0
                 
-            for root, dirs, files in os.walk(path_str):
+            for root, _dirs, files in os.walk(path_str):
                 for f in files:
                     try:
                         fp = os.path.join(root, f)

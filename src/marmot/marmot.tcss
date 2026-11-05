@@ -246,6 +246,12 @@ ProgressBar.-complete > .bar--bar {
     margin-bottom: 1;
 }
 
+#list-uninstall-remnants {
+    height: auto;
+    max-height: 8;
+    margin-bottom: 1;
+}
+
 #lbl-analyzer-path {
     margin: 1 0;
     color: #8c8cf0;
