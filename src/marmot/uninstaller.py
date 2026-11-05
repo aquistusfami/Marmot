@@ -1,8 +1,8 @@
-import subprocess
 import os
+import subprocess
 from pathlib import Path
 
-from modules import pkgmgr
+from marmot import pkgmgr
 
 # Only direct children of these dirs (relative to $HOME) may be deleted as remnants.
 REMNANT_PARENTS = (".config", ".local/share", ".cache")
@@ -34,7 +34,7 @@ class PackageUninstaller:
         if not self.pm:
             return None
         try:
-            res = subprocess.run(self.pm['preview_cmd'](package_name), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            res = subprocess.run(self.pm['preview_cmd'](package_name), capture_output=True)
             if res.returncode != 0:
                 return None
             return self.pm['parse_preview'](res.stdout.decode("utf-8", errors="ignore"))
@@ -60,7 +60,7 @@ class PackageUninstaller:
         remnants = []
         for folder in folders:
             size = 0
-            for root, dirs, files in os.walk(folder):
+            for root, _dirs, files in os.walk(folder):
                 for f in files:
                     try:
                         size += os.path.getsize(os.path.join(root, f))
@@ -94,13 +94,13 @@ class PackageUninstaller:
             return False, "Unsupported distribution: no apt or pacman found."
         try:
             cmd = ["pkexec", *self.pm['remove_cmd'](package_name)]
-            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            res = subprocess.run(cmd, capture_output=True)
             if res.returncode == 0:
                 success = True
                 msg = f"Package {package_name} purged successfully."
             else:
                 cmd = ["sudo", "-n", *self.pm['remove_cmd'](package_name)]
-                res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                res = subprocess.run(cmd, capture_output=True)
                 if res.returncode == 0:
                     success = True
                     msg = f"Package {package_name} purged successfully (via sudo)."

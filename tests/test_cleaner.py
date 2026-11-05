@@ -1,9 +1,9 @@
-import os
-import shutil
 import unittest
-from unittest.mock import patch, MagicMock, mock_open
 from pathlib import Path
-from modules.cleaner import SystemCleaner
+from unittest.mock import MagicMock, patch
+
+from marmot.cleaner import SystemCleaner
+
 
 class TestSystemCleaner(unittest.TestCase):
     def setUp(self):
@@ -93,7 +93,7 @@ class TestSystemCleaner(unittest.TestCase):
     @patch('pathlib.Path.exists', return_value=True)
     @patch('pathlib.Path.is_dir', return_value=True)
     @patch('subprocess.check_output', return_value=b"Archived and active journals take up 120.4MB in the file system.\n")
-    @patch('modules.cleaner.SystemCleaner.get_dir_size', return_value=5000000)
+    @patch('marmot.cleaner.SystemCleaner.get_dir_size', return_value=5000000)
     def test_scan_success(self, mock_get_size, mock_check_output, mock_is_dir, mock_exists):
         # We also mock iterdir to return some folders representing dev junk
         mock_proj = MagicMock()

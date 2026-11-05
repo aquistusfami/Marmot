@@ -1,11 +1,13 @@
 import os
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
-from modules import pkgmgr
+from marmot import pkgmgr
 
-MARMOT_DIR = Path(__file__).resolve().parent.parent
+# the virtualenv Marmot itself runs from (repo .venv, pipx/uv tool env): never offered as junk
+RUNNING_VENV = Path(sys.prefix).resolve()
 
 # build dir -> project files that must sit beside it (None = always junk)
 DEV_JUNK_MARKERS = {
@@ -28,7 +30,7 @@ class SystemCleaner:
         try:
             if path.is_file():
                 return path.stat().st_size
-            for root, dirs, files in os.walk(path):
+            for root, _dirs, files in os.walk(path):
                 # Handle permission errors gracefully
                 for f in files:
                     fp = os.path.join(root, f)
@@ -82,12 +84,14 @@ class SystemCleaner:
         if self.pm:
             cache_path = self.pm['cache_dir']
             cache_size = 0
-            if cache_path.exists():
+            try:
                 for f in cache_path.glob(self.pm['cache_glob']):
                     try:
                         cache_size += f.stat().st_size
                     except OSError:
                         pass
+            except OSError:
+                pass  # missing/unreadable cache dir (Python < 3.13 raises from glob)
             results['pkg_cache'] = {
                 'name': f"{self.pm['label']} Package Cache",
                 'path': str(cache_path),
@@ -98,7 +102,6 @@ class SystemCleaner:
             }
 
         # 4. Systemd Journal Logs
-        journal_size = 0
         try:
             out = subprocess.check_output(["journalctl", "--disk-usage"], stderr=subprocess.DEVNULL)
             # Example output: "Archived and active journals take up 1.2GB in the file system."
@@ -145,12 +148,10 @@ class SystemCleaner:
                     for entry in sdir.iterdir():
                         if entry.is_dir() and not entry.name.startswith("."):
                             # Check standard build folders
-                            if entry.resolve() == MARMOT_DIR:
-                                continue  # never delete Marmot's own .venv
                             for sub, markers in DEV_JUNK_MARKERS.items():
                                 path = entry / sub
                                 # "build"/"target" are only junk next to a project file that produced them
-                                if path.exists() and path.is_dir() and (
+                                if path.exists() and path.is_dir() and path.resolve() != RUNNING_VENV and (
                                         markers is None or any((entry / m).exists() for m in markers)):
                                     found_folders.append(path)
                 except Exception:
@@ -208,11 +209,11 @@ class SystemCleaner:
                 return False, "Unsupported distribution: no apt or pacman found."
             label = self.pm['label']
             try:
-                subprocess.run(["pkexec", *self.pm['clean_cmd']()], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                subprocess.run(["pkexec", *self.pm['clean_cmd']()], check=True, capture_output=True)
                 return True, f"{label} packages cache cleaned successfully"
             except Exception:
                 try:
-                    subprocess.run(["sudo", "-n", *self.pm['clean_cmd']()], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    subprocess.run(["sudo", "-n", *self.pm['clean_cmd']()], check=True, capture_output=True)
                     return True, f"{label} packages cache cleaned successfully (via sudo)"
                 except Exception as e:
                     return False, f"Failed to execute. Sudo privileges required. Error: {str(e)}"
@@ -222,11 +223,11 @@ class SystemCleaner:
             try:
                 # Vacuum journalctl to 1 day
                 cmd = ["pkexec", "journalctl", "--vacuum-time=1d"]
-                res = subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                res = subprocess.run(cmd, check=True, capture_output=True)
                 return True, f"Systemd logs vacuumed: {res.stdout.decode('utf-8').strip()}"
             except Exception:
                 try:
-                    res = subprocess.run(["sudo", "-n", "journalctl", "--vacuum-time=1d"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    res = subprocess.run(["sudo", "-n", "journalctl", "--vacuum-time=1d"], check=True, capture_output=True)
                     return True, f"Systemd logs vacuumed (via sudo): {res.stdout.decode('utf-8').strip()}"
                 except Exception as e:
                     return False, f"Failed to execute. Sudo privileges required. Error: {str(e)}"

@@ -1,17 +1,28 @@
-import os
-import sys
-from pathlib import Path
 from textual.app import App, ComposeResult
-from textual.containers import Grid, Vertical, Horizontal, ScrollableContainer, Container
-from textual.widgets import Header, Footer, TabbedContent, TabPane, Label, ProgressBar, Button, Checkbox, Input, ListView, ListItem, RichLog, SelectionList
-from textual.reactive import reactive
+from textual.containers import Container, Grid, Horizontal, Vertical
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Footer,
+    Header,
+    Input,
+    Label,
+    ListItem,
+    ListView,
+    ProgressBar,
+    RichLog,
+    SelectionList,
+    TabbedContent,
+    TabPane,
+)
+
+from marmot.analyzer import DiskAnalyzer
+from marmot.cleaner import SystemCleaner
 
 # Import Marmot Modules
-from modules.monitor import SystemMonitor
-from modules.cleaner import SystemCleaner
-from modules.optimizer import SystemOptimizer
-from modules.uninstaller import PackageUninstaller
-from modules.analyzer import DiskAnalyzer
+from marmot.monitor import SystemMonitor
+from marmot.optimizer import SystemOptimizer
+from marmot.uninstaller import PackageUninstaller
 
 
 class CPUCard(Container):
@@ -513,6 +524,9 @@ class MarmotApp(App):
         self.call_from_thread(update_ui)
 
 
+def main() -> None:
+    MarmotApp().run()
+
+
 if __name__ == "__main__":
-    app = MarmotApp()
-    app.run()
+    main()

@@ -4,12 +4,13 @@
 </div>
 
 <p align="center">
+  <a href="https://github.com/aquistusfami/Marmot/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/aquistusfami/Marmot/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
   <a href="https://github.com/aquistusfami/Marmot/stargazers"><img src="https://img.shields.io/github/stars/aquistusfami/Marmot?style=flat-square" alt="Stars"></a>
   <a href="https://github.com/aquistusfami/Marmot/releases"><img src="https://img.shields.io/github/v/tag/aquistusfami/Marmot?label=version&style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL_v3-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://www.debian.org/"><img src="https://img.shields.io/badge/platform-Debian_Linux-red?style=flat-square&logo=Debian" alt="Debian"></a>
   <a href="https://archlinux.org/"><img src="https://img.shields.io/badge/platform-Arch_Linux-1793d1?style=flat-square&logo=Arch-Linux" alt="Arch"></a>
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/language-Python_3.13-blue?style=flat-square&logo=Python" alt="Python"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/language-Python_3.10+-blue?style=flat-square&logo=Python" alt="Python"></a>
   <a href="https://github.com/Textualize/textual"><img src="https://img.shields.io/badge/framework-Textual-green?style=flat-square" alt="Textual"></a>
 </p>
 
@@ -30,30 +31,26 @@
 
 ## Quick Start
 
-**Ensure Python 3.13+ & venv are installed**
+**Requirements:** Python 3.10+, polkit (`pkexec`) for privileged actions. On Arch, `pacman-contrib` provides `paccache` for the package-cache cleaner.
+
+**Install** with [uv](https://docs.astral.sh/uv/) (or `pipx install git+https://github.com/aquistusfami/Marmot`):
 
 ```bash
-# Debian / Ubuntu / Mint
-sudo apt update && sudo apt install -y python3-venv python3-pip
-# Arch / Manjaro / EndeavourOS (pacman-contrib provides paccache for the cache cleaner)
-sudo pacman -S --needed python pacman-contrib
+uv tool install git+https://github.com/aquistusfami/Marmot
+marmot
 ```
 
-**Clone and Setup**
+Upgrade with `uv tool upgrade marmot-tui`, remove with `uv tool uninstall marmot-tui`.
 
-```bash
-git clone https://github.com/aquistusfami/Marmot.git ~/Marmot
-cd ~/Marmot
-python3 -m venv .venv
-.venv/bin/pip install --upgrade pip
-.venv/bin/pip install textual rich
-```
+**Supported distributions**
 
-**Run**
+| Family | Package backend | Status |
+|---|---|---|
+| Debian, Ubuntu, Mint, Pop!_OS, Kali | apt / dpkg | full |
+| Arch, Manjaro, EndeavourOS, CachyOS | pacman | full |
+| Others (Fedora, openSUSE, Alpine...) | none yet | Monitor, Cleaner (no package cache), Analyzer, Optimizer |
 
-```bash
-./marmot
-```
+Journal cleaning and service reset need systemd.
 
 ### Keyboard Navigation & Controls
 
@@ -61,6 +58,17 @@ python3 -m venv .venv
 - `Arrow Keys` / `h/j/k/l` : Navigate through lists, checkbox options, and directories
 - `Enter` : Select, toggle checkboxes, trigger scan/action buttons
 - `q` : Quit Marmot
+
+## Development
+
+```bash
+git clone https://github.com/aquistusfami/Marmot.git && cd Marmot
+uv run marmot            # run from source
+uv run pytest            # tests (incl. a headless TUI smoke test)
+uv run ruff check        # lint
+```
+
+CI runs lint, tests on Python 3.10–3.14, tests inside an Arch Linux container, and builds the wheel. Pushing a tag `vX.Y.Z` that matches `src/marmot/__init__.py` publishes a GitHub release. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security & Safety Design
 

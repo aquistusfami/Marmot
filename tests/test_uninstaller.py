@@ -1,9 +1,9 @@
-import os
-import shutil
 import unittest
-from unittest.mock import patch, MagicMock
 from pathlib import Path
-from modules.uninstaller import PackageUninstaller
+from unittest.mock import MagicMock, patch
+
+from marmot.uninstaller import PackageUninstaller
+
 
 class TestPackageUninstaller(unittest.TestCase):
     def setUp(self):

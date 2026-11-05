@@ -29,11 +29,11 @@ def _parse_pacman_qi(out: str) -> list:
 
 def _parse_apt_sim(out: str) -> list:
     # `apt-get -s purge` prints one "Purg <pkg> [...]" line per package it would remove
-    return [l.split()[1] for l in out.splitlines() if l.startswith(("Purg ", "Remv "))]
+    return [ln.split()[1] for ln in out.splitlines() if ln.startswith(("Purg ", "Remv "))]
 
 
 def _parse_lines(out: str) -> list:
-    return [l.split()[0] for l in out.splitlines() if l.strip()]
+    return [ln.split()[0] for ln in out.splitlines() if ln.strip()]
 
 
 BACKENDS = {

@@ -1,11 +1,11 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-from modules import pkgmgr
-from modules.cleaner import SystemCleaner
-from modules.uninstaller import PackageUninstaller
+from marmot import pkgmgr
+from marmot.cleaner import SystemCleaner
+from marmot.uninstaller import PackageUninstaller
 
 PACMAN_QI = """Name            : git
 Version         : 2.51.0-1
@@ -78,7 +78,8 @@ class TestDevJunk(unittest.TestCase):
     def test_markers_required(self):
         with tempfile.TemporaryDirectory() as home, patch('pathlib.Path.home', return_value=Path(home)):
             h = Path(home)
-            (h / "web" / "node_modules").mkdir(parents=True); (h / "web" / "package.json").touch()
+            (h / "web" / "node_modules").mkdir(parents=True)
+            (h / "web" / "package.json").touch()
             (h / "photos" / "build").mkdir(parents=True)          # no project file: real user data
             (h / "rs" / "target").mkdir(parents=True)             # no Cargo.toml
             with patch('subprocess.check_output', side_effect=Exception):
@@ -86,11 +87,12 @@ class TestDevJunk(unittest.TestCase):
             self.assertEqual(paths, [str(h / "web" / "node_modules")])
 
     def test_skips_marmot_own_venv(self):
-        import modules.cleaner as c
+        import marmot.cleaner as c
         with tempfile.TemporaryDirectory() as home, patch('pathlib.Path.home', return_value=Path(home)):
             proj = Path(home) / "Marmot"
-            (proj / ".venv").mkdir(parents=True); (proj / "requirements.txt").touch()
-            with patch.object(c, "MARMOT_DIR", proj.resolve()), patch('subprocess.check_output', side_effect=Exception):
+            (proj / ".venv").mkdir(parents=True)
+            (proj / "requirements.txt").touch()
+            with patch.object(c, "RUNNING_VENV", (proj / ".venv").resolve()), patch('subprocess.check_output', side_effect=Exception):
                 self.assertEqual(SystemCleaner(backend="pacman").scan()['dev_junk']['paths_list'], [])
 
 

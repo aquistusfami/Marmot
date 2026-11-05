@@ -1,17 +1,14 @@
-import os
-import sys
 import time
 from pathlib import Path
 
-# Add project root to path so we can import modules
-sys.path.append(str(Path(__file__).parent.parent))
+# Run from the repo with: uv run python scripts/benchmark_optimizer.py
+from marmot.optimizer import SystemOptimizer
 
-from modules.optimizer import SystemOptimizer
 
 def get_mem_stats():
     stats = {}
     try:
-        with open("/proc/meminfo", "r") as f:
+        with open("/proc/meminfo") as f:
             for line in f:
                 parts = line.split()
                 if not parts:
@@ -119,7 +116,6 @@ def run_benchmark():
         # Dry run to retrieve times
         t0 = time.time()
         # Just gather execution status
-        status = "Success" if success else "Failed"
         report.append(f"| `{opt['id']}` | {opt['name']} | [Tested Above] | `{opt['requires_sudo']}` | Checked |")
         
     # Write report file
