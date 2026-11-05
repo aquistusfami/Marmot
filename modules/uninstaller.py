@@ -2,71 +2,80 @@ import subprocess
 import os
 from pathlib import Path
 
+from modules import pkgmgr
+
+# Only direct children of these dirs (relative to $HOME) may be deleted as remnants.
+REMNANT_PARENTS = (".config", ".local/share", ".cache")
+
+
 class PackageUninstaller:
-    def __init__(self):
+    def __init__(self, backend: str | None = None):
         self.home = Path.home()
-        
+        self.pm = pkgmgr.get(backend)
+
     def list_installed_packages(self, search_query: str = "") -> list:
         packages = []
+        if not self.pm:
+            return packages
         try:
-            cmd = ["dpkg-query", "-W", "-f=${Package}\t${Version}\t${binary:Summary}\n"]
-            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+            process = subprocess.Popen(self.pm['list_cmd'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             out, _ = process.communicate()
-            
-            lines = out.decode("utf-8", errors="ignore").strip().split("\n")
-            search_query_lower = search_query.lower()
-            for line in lines:
-                if not line:
-                    continue
-                parts = line.split("\t")
-                if len(parts) >= 3:
-                    name, ver, summary = parts[0], parts[1], parts[2]
-                    if not search_query or search_query_lower in name.lower() or search_query_lower in summary.lower():
-                        packages.append({
-                            'name': name,
-                            'version': ver,
-                            'summary': summary
-                        })
+            q = search_query.lower()
+            for pkg in self.pm['parse_list'](out.decode("utf-8", errors="ignore")):
+                if not q or q in pkg['name'].lower() or q in pkg['summary'].lower():
+                    packages.append(pkg)
             packages.sort(key=lambda x: x['name'])
         except Exception:
             pass
         return packages[:60] # limit for smooth TUI scrolling
 
+    def preview_removal(self, package_name: str) -> list | None:
+        """Packages the package manager would remove (dependants/orphans included), or None on error."""
+        if not self.pm:
+            return None
+        try:
+            res = subprocess.run(self.pm['preview_cmd'](package_name), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if res.returncode != 0:
+                return None
+            return self.pm['parse_preview'](res.stdout.decode("utf-8", errors="ignore"))
+        except Exception:
+            return None
+
+    def _remnant_parents(self) -> list:
+        return [self.home / d for d in REMNANT_PARENTS]
+
     def find_remnants(self, package_name: str) -> list:
-        remnants = []
-        possible_dirs = [
-            self.home / ".config" / package_name,
-            self.home / ".local" / "share" / package_name,
-            self.home / ".cache" / package_name,
-            self.home / ".var" / "app" / package_name
-        ]
-        
-        check_parent = [self.home / ".config", self.home / ".local" / "share", self.home / ".cache"]
-        for pdir in check_parent:
+        # Exact (case-insensitive) name match only: a substring match made "git" hit ~/.config/gitkraken.
+        want = package_name.lower()
+        folders = []
+        for pdir in self._remnant_parents():
             if pdir.exists() and pdir.is_dir():
                 try:
                     for entry in pdir.iterdir():
-                        if entry.is_dir() and package_name.lower() in entry.name.lower():
-                            if entry not in possible_dirs:
-                                possible_dirs.append(entry)
+                        if entry.name.lower() == want and entry.is_dir() and entry not in folders:
+                            folders.append(entry)
                 except Exception:
                     pass
 
-        for folder in possible_dirs:
-            if folder.exists() and folder.is_dir():
-                size = 0
-                for root, dirs, files in os.walk(folder):
-                    for f in files:
-                        try:
-                            size += os.path.getsize(os.path.join(root, f))
-                        except OSError:
-                            pass
-                remnants.append({
-                    'path': str(folder),
-                    'size': size,
-                    'size_str': self.format_size(size)
-                })
+        remnants = []
+        for folder in folders:
+            size = 0
+            for root, dirs, files in os.walk(folder):
+                for f in files:
+                    try:
+                        size += os.path.getsize(os.path.join(root, f))
+                    except OSError:
+                        pass
+            remnants.append({
+                'path': str(folder),
+                'size': size,
+                'size_str': self.format_size(size)
+            })
         return remnants
+
+    def is_safe_remnant(self, path_str: str) -> bool:
+        path = Path(path_str)
+        return path.parent in self._remnant_parents() and not path.is_symlink()
 
     def format_size(self, size_bytes: int) -> str:
         if size_bytes == 0:
@@ -81,14 +90,16 @@ class PackageUninstaller:
     def uninstall(self, package_name: str, delete_remnants: list = None) -> tuple[bool, str]:
         success = False
         msg = ""
+        if not self.pm:
+            return False, "Unsupported distribution: no apt or pacman found."
         try:
-            cmd = ["pkexec", "apt-get", "purge", "-y", package_name]
+            cmd = ["pkexec", *self.pm['remove_cmd'](package_name)]
             res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             if res.returncode == 0:
                 success = True
                 msg = f"Package {package_name} purged successfully."
             else:
-                cmd = ["sudo", "-n", "apt-get", "purge", "-y", package_name]
+                cmd = ["sudo", "-n", *self.pm['remove_cmd'](package_name)]
                 res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 if res.returncode == 0:
                     success = True
@@ -102,6 +113,8 @@ class PackageUninstaller:
             import shutil
             deleted_paths = []
             for rpath in delete_remnants:
+                if not self.is_safe_remnant(rpath):
+                    continue
                 try:
                     shutil.rmtree(rpath, ignore_errors=True)
                     deleted_paths.append(rpath)

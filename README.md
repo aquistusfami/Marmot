@@ -1,6 +1,6 @@
 <div align="center">
   <h1>Marmot</h1>
-  <p><em>Clean, uninstall, analyze, optimize, and monitor your Debian Linux from the terminal.</em></p>
+  <p><em>Clean, uninstall, analyze, optimize, and monitor your Linux (Debian / Arch based) from the terminal.</em></p>
 </div>
 
 <p align="center">
@@ -8,6 +8,7 @@
   <a href="https://github.com/aquistusfami/Marmot/releases"><img src="https://img.shields.io/github/v/tag/aquistusfami/Marmot?label=version&style=flat-square" alt="Version"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL_v3-blue.svg?style=flat-square" alt="License"></a>
   <a href="https://www.debian.org/"><img src="https://img.shields.io/badge/platform-Debian_Linux-red?style=flat-square&logo=Debian" alt="Debian"></a>
+  <a href="https://archlinux.org/"><img src="https://img.shields.io/badge/platform-Arch_Linux-1793d1?style=flat-square&logo=Arch-Linux" alt="Arch"></a>
   <a href="https://www.python.org/"><img src="https://img.shields.io/badge/language-Python_3.13-blue?style=flat-square&logo=Python" alt="Python"></a>
   <a href="https://github.com/Textualize/textual"><img src="https://img.shields.io/badge/framework-Textual-green?style=flat-square" alt="Textual"></a>
 </p>
@@ -16,23 +17,26 @@
   <img src="https://images.unsplash.com/photo-1472457897821-70d3819a0e24?auto=format&fit=crop&w=1000&q=80" alt="Marmot TUI System Cleaner" width="1000" />
 </p>
 
-> **Marmot** is a premium, Linux-native alternative to Mac system utilities, specifically customized for **Debian-based systems**. It runs entirely as a regular user, dynamically escalating privileges via **Polkit (`pkexec`)** only when administrative actions are triggered.
+> **Marmot** is a premium, Linux-native alternative to Mac system utilities, built for **Debian-based (apt) and Arch-based (pacman) systems**. It runs entirely as a regular user, dynamically escalating privileges via **Polkit (`pkexec`)** only when administrative actions are triggered.
 
 ## Features
 
-- **All-in-One Linux Toolkit**: Replaces system monitors, `ncdu`, `apt-get clean`, `journalctl`, and custom scanning scripts in a single TUI interface.
+- **All-in-One Linux Toolkit**: Replaces system monitors, `ncdu`, `apt-get clean` / `paccache`, `journalctl`, and custom scanning scripts in a single TUI interface.
 - **Bento System Monitor**: Real-time CPU usage/temperature, RAM, Swap allocation, Network bandwidth, and Disk volume states.
-- **Deep Cleaner**: Safely vacuums user caches (`~/.cache`), system trash, apt cache archives, systemd logs, and developer build files (`node_modules`, `.venv`, etc.).
-- **Smart Package Uninstaller**: Searches Debian packages, queries active configuration/remnant files in user directories, and purges them safely.
+- **Deep Cleaner**: Safely vacuums user caches (`~/.cache`), system trash, apt or pacman package caches, systemd logs, and developer build files (`node_modules`, `.venv`, etc.).
+- **Smart Package Uninstaller**: Searches apt or pacman packages, previews every package the removal will take with it, and lets you tick which leftover config/cache folders (exact name match) to delete.
 - **Disk Usage Analyzer**: Interactive tree explorer (an alternative to `ncdu`) allowing you to recursively navigate folders and inspect sizes asynchronously.
 - **System Optimizer**: One-click actions to sync & drop RAM page cache, flush DNS resolvers, reset failed systemd services, and cycle swap space safely.
 
 ## Quick Start
 
-**Ensure Python 3.13 & pip are installed**
+**Ensure Python 3.13+ & venv are installed**
 
 ```bash
+# Debian / Ubuntu / Mint
 sudo apt update && sudo apt install -y python3-venv python3-pip
+# Arch / Manjaro / EndeavourOS (pacman-contrib provides paccache for the cache cleaner)
+sudo pacman -S --needed python pacman-contrib
 ```
 
 **Clone and Setup**
@@ -60,10 +64,10 @@ python3 -m venv .venv
 
 ## Security & Safety Design
 
-Marmot is designed from the ground up for Debian's strict security model:
+Marmot is designed around a least-privilege security model:
 
 1. **Regular User Execution**: The entire TUI runs as a non-privileged user. It does not run as `root` or require `sudo ./marmot`, protecting the system from interface-level vulnerabilities.
-2. **Polkit Integration (`pkexec`)**: When administrative actions (like RAM dropping or APT cleaning) are executed, Marmot invokes `pkexec` to securely prompt the user for password authentication.
+2. **Polkit Integration (`pkexec`)**: When administrative actions (like RAM dropping or package cache cleaning) are executed, Marmot invokes `pkexec` to securely prompt the user for password authentication.
 3. **Dirty RAM Syncing**: Before purging RAM caches, Marmot runs `sync` to flush all pending filesystem changes, guaranteeing zero data loss.
 4. **Swap Reset Safety**: Before cycling swap memory, Marmot verifies that `free RAM > active swap` to prevent Out-Of-Memory (OOM) lockups.
 

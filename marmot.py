@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 from textual.app import App, ComposeResult
 from textual.containers import Grid, Vertical, Horizontal, ScrollableContainer, Container
-from textual.widgets import Header, Footer, TabbedContent, TabPane, Label, ProgressBar, Button, Checkbox, Input, ListView, ListItem, RichLog
+from textual.widgets import Header, Footer, TabbedContent, TabPane, Label, ProgressBar, Button, Checkbox, Input, ListView, ListItem, RichLog, SelectionList
 from textual.reactive import reactive
 
 # Import Marmot Modules
@@ -214,7 +214,9 @@ class MarmotApp(App):
                         yield Label("[bold]Select areas to clean:[/bold]\n")
                         yield Checkbox("User Caches (~/.cache)", value=True, id="chk-user-cache")
                         yield Checkbox("System Trash Bin", value=True, id="chk-trash")
-                        yield Checkbox("Apt Package Caches (.deb)", value=False, id="chk-apt-cache")
+                        pm = self.cleaner.pm
+                        if pm:
+                            yield Checkbox(f"{pm['label']} Package Cache", value=False, id="chk-pkg-cache")
                         yield Checkbox("Systemd Journal Logs", value=False, id="chk-systemd-logs")
                         yield Checkbox("Developer Build Files (node_modules, target...)", value=False, id="chk-dev-junk")
                         
@@ -241,6 +243,10 @@ class MarmotApp(App):
                         yield Label("[bold]Package Information & Remnants:[/bold]")
                         self.uninstall_info = Label("Select a package from the list to view details.", id="lbl-uninstall-info")
                         yield self.uninstall_info
+                        # remnant dirs start unchecked: the user opts in to each deletion
+                        self.uninstall_remnants = SelectionList(id="list-uninstall-remnants")
+                        self.uninstall_remnants.display = False
+                        yield self.uninstall_remnants
                         self.uninstall_btn = Button("Purge Package & Configuration Remnants", variant="error", id="btn-uninstall-purge", disabled=True)
                         yield self.uninstall_btn
                         yield Label("[bold]Uninstaller Execution Log:[/bold]", classes="margin-top-1")
@@ -361,8 +367,8 @@ class MarmotApp(App):
                 self.query_one("#chk-user-cache", Checkbox).label = f"User Caches: {val['size_str']}"
             elif key == 'trash':
                 self.query_one("#chk-trash", Checkbox).label = f"System Trash Bin: {val['size_str']}"
-            elif key == 'apt_cache':
-                self.query_one("#chk-apt-cache", Checkbox).label = f"Apt Package Caches: {val['size_str']}"
+            elif key == 'pkg_cache':
+                self.query_one("#chk-pkg-cache", Checkbox).label = f"{val['name']}: {val['size_str']}"
             elif key == 'systemd_logs':
                 self.query_one("#chk-systemd-logs", Checkbox).label = f"Systemd Journal Logs: {val['size_str']}"
             elif key == 'dev_junk':
@@ -376,13 +382,15 @@ class MarmotApp(App):
         chk_mapping = {
             'user_cache': "#chk-user-cache",
             'trash': "#chk-trash",
-            'apt_cache': "#chk-apt-cache",
+            'pkg_cache': "#chk-pkg-cache",
             'systemd_logs': "#chk-systemd-logs",
             'dev_junk': "#chk-dev-junk"
         }
         
         cleaned_any = False
         for item_id, selector in chk_mapping.items():
+            if item_id not in self.clean_scan_data:
+                continue  # e.g. no package cache on an unsupported distro
             chk = self.query_one(selector, Checkbox)
             if chk.value:
                 self.clean_log.write(f"Cleaning {self.clean_scan_data[item_id]['name']}...")
@@ -414,28 +422,32 @@ class MarmotApp(App):
             if item and hasattr(item, "package_info"):
                 pkg = item.package_info
                 
-                # Scan for remnant configs
-                remnants = self.uninstaller.find_remnants(pkg['name'])
-                remnant_text = ""
-                self.selected_remnant_paths = []
-                
-                if remnants:
-                    remnant_text = "\n\n[bold yellow]Remnant directories found:[/] "
-                    for r in remnants:
-                        self.selected_remnant_paths.append(r['path'])
-                        remnant_text += f"\n- {r['path']} ({r['size_str']})"
+                removal = self.uninstaller.preview_removal(pkg['name'])
+                if removal is None:
+                    removal_text = "\n\n[bold red]Cannot preview removal (package required by others?). Purge disabled.[/]"
                 else:
-                    remnant_text = "\n\nNo config/cache remnants detected."
-                    
+                    extra = [n for n in removal if n != pkg['name']]
+                    removal_text = f"\n\n[bold]Will remove {len(removal)} package(s):[/] {', '.join(removal)}"
+                    if extra:
+                        removal_text += f"\n[bold yellow]Warning: {len(extra)} other package(s) will also be removed.[/]"
+
+                remnants = self.uninstaller.find_remnants(pkg['name'])
+                self.uninstall_remnants.clear_options()
+                self.uninstall_remnants.add_options([(f"{r['path']} ({r['size_str']})", r['path']) for r in remnants])
+                self.uninstall_remnants.display = bool(remnants)
+                remnant_text = ("\n\n[bold yellow]Remnant directories found (tick to delete them too):[/]"
+                                if remnants else "\n\nNo config/cache remnants detected.")
+
                 info = (
                     f"[bold]{pkg['name']}[/bold]\n"
                     f"Version: {pkg['version']}\n"
                     f"Summary: {pkg['summary']}"
+                    f"{removal_text}"
                     f"{remnant_text}"
                 )
                 self.uninstall_info.update(info)
                 self.selected_package = pkg['name']
-                self.uninstall_btn.disabled = False
+                self.uninstall_btn.disabled = removal is None
                 
         elif event.list_view.id == "list-analyzer":
             item = event.item
@@ -451,12 +463,14 @@ class MarmotApp(App):
             return
             
         self.uninstall_log.write(f"Executing purge on {self.selected_package}...")
-        success, msg = self.uninstaller.uninstall(self.selected_package, getattr(self, "selected_remnant_paths", None))
+        success, msg = self.uninstaller.uninstall(self.selected_package, list(self.uninstall_remnants.selected))
         
         if success:
             self.uninstall_log.write(f"[success]✓ {msg}[/]")
             self.uninstall_info.update("Select a package from the list to view details.")
             self.uninstall_btn.disabled = True
+            self.uninstall_remnants.clear_options()
+            self.uninstall_remnants.display = False
             # Refresh package list
             self.refresh_packages_list(self.uninstall_search.value)
         else:
