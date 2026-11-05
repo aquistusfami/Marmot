@@ -15,8 +15,10 @@ from textual.widgets import (
     TabbedContent,
     TabPane,
 )
+from textual.worker import get_current_worker
 
-from marmot.analyzer import DiskAnalyzer
+from marmot import trash
+from marmot.analyzer import DiskAnalyzer, ScanCancelled
 from marmot.cleaner import SystemCleaner
 
 # Import Marmot Modules
@@ -165,7 +167,8 @@ class PackageListItem(ListItem):
         self.package_info = package_info
         
     def compose(self) -> ComposeResult:
-        yield Label(f"[bold cyan]{self.package_info['name']}[/bold cyan] ([dim]{self.package_info['version']}[/dim])\n[dim]{self.package_info['summary']}[/dim]")
+        tag = " [magenta]flatpak[/]" if self.package_info.get('source') == 'flatpak' else ""
+        yield Label(f"[bold cyan]{self.package_info['name']}[/bold cyan]{tag} ([dim]{self.package_info['version']}[/dim])\n[dim]{self.package_info['summary']}[/dim]")
 
 
 class DiskListItem(ListItem):
@@ -174,9 +177,14 @@ class DiskListItem(ListItem):
         self.item_info = item_info
         
     def compose(self) -> ComposeResult:
-        prefix = "[DIR] " if self.item_info['is_dir'] else "      "
-        name_style = "[bold cyan]" if self.item_info['is_dir'] else "[white]"
-        yield Label(f"{prefix}{name_style}{self.item_info['name']}[/] - [magenta]{self.item_info['size_str']}[/]")
+        info = self.item_info
+        pct = info.get('percent', 0)
+        filled = round(pct / 10)
+        bar = f"[magenta]{'█' * filled}[/][dim]{'░' * (10 - filled)}[/]"
+        prefix = "[DIR] " if info['is_dir'] else "      "
+        name_style = "[bold cyan]" if info['is_dir'] else "[white]"
+        yield Label(f"{bar} {pct:5.1f}%  [magenta]{info['size_str']:>10}[/]  {prefix}{name_style}{info['name']}[/]",
+                    markup=True)
 
 
 class MarmotApp(App):
@@ -222,24 +230,27 @@ class MarmotApp(App):
             with TabPane("Cleaner", id="pane-cleaner"):
                 with Horizontal():
                     with Vertical(id="cleaner-options-panel", classes="half-width-pad-right"):
-                        yield Label("[bold]Select areas to clean:[/bold]\n")
-                        yield Checkbox("User Caches (~/.cache)", value=True, id="chk-user-cache")
-                        yield Checkbox("System Trash Bin", value=True, id="chk-trash")
-                        pm = self.cleaner.pm
-                        if pm:
-                            yield Checkbox(f"{pm['label']} Package Cache", value=False, id="chk-pkg-cache")
-                        yield Checkbox("Systemd Journal Logs", value=False, id="chk-systemd-logs")
-                        yield Checkbox("Developer Build Files (node_modules, target...)", value=False, id="chk-dev-junk")
-                        
-                        with Horizontal(classes="margin-top-2"):
-                            yield Button("Scan Storage", variant="primary", id="btn-clean-scan")
-                            yield Button("Clean Selected", variant="error", id="btn-clean-run", classes="margin-left-2")
-                            
+                        yield Label("[bold]Areas to clean[/bold] [dim](press Scan to measure)[/dim]")
+                        self.clean_items = SelectionList(id="list-clean-items")
+                        yield self.clean_items
+                        self.clean_cache_lbl = Label("[bold]Cache folders[/bold] [dim](untick to keep)[/dim]")
+                        self.clean_cache_lbl.display = False
+                        yield self.clean_cache_lbl
+                        self.clean_cache = SelectionList(id="list-clean-cache")
+                        self.clean_cache.display = False
+                        yield self.clean_cache
+                        yield Checkbox("Move developer files to Trash (undoable)", value=True, id="chk-use-trash")
+                        with Horizontal(classes="margin-top-1 button-row"):
+                            yield Button("Scan", variant="primary", id="btn-clean-scan")
+                            yield Button("Preview", id="btn-clean-preview")
+                            yield Button("Clean", variant="error", id="btn-clean-run")
+                            yield Button("Undo", id="btn-clean-undo")
+
                     with Vertical(classes="half-width"):
                         yield Label("[bold]Operation Logs:[/bold]")
-                        self.clean_log = RichLog(highlight=True, classes="log-view")
+                        self.clean_log = RichLog(highlight=True, markup=True, classes="log-view")
                         yield self.clean_log
-                        
+
             # 3. Smart Uninstaller
             with TabPane("Uninstaller", id="pane-uninstaller"):
                 with Horizontal():
@@ -261,7 +272,7 @@ class MarmotApp(App):
                         self.uninstall_btn = Button("Purge Package & Configuration Remnants", variant="error", id="btn-uninstall-purge", disabled=True)
                         yield self.uninstall_btn
                         yield Label("[bold]Uninstaller Execution Log:[/bold]", classes="margin-top-1")
-                        self.uninstall_log = RichLog(highlight=True, classes="log-view")
+                        self.uninstall_log = RichLog(highlight=True, markup=True, classes="log-view")
                         yield self.uninstall_log
                         
             # 4. Disk Analyzer
@@ -270,7 +281,7 @@ class MarmotApp(App):
                 self.analyzer_path_lbl = Label(f"Current Directory: {self.analyzer.current_path}", id="lbl-analyzer-path")
                 yield self.analyzer_path_lbl
                 with Horizontal(classes="analyzer-header"):
-                    yield Button("Scan Current Directory", variant="primary", id="btn-analyzer-scan")
+                    yield Button("Rescan", variant="primary", id="btn-analyzer-scan")
                     yield Button("Go to Parent (..)", variant="default", id="btn-analyzer-up", classes="margin-left-2")
                 self.analyzer_list = ListView(id="list-analyzer")
                 yield self.analyzer_list
@@ -287,7 +298,7 @@ class MarmotApp(App):
                             yield Button("Reclaim Swap Space", id="btn-opt-swap-reset", variant="primary")
                     with Vertical(classes="half-width"):
                         yield Label("[bold]Optimizer Execution Log:[/bold]")
-                        self.optimize_log = RichLog(highlight=True, classes="log-view")
+                        self.optimize_log = RichLog(highlight=True, markup=True, classes="log-view")
                         yield self.optimize_log
                         
         yield Footer()
@@ -344,6 +355,10 @@ class MarmotApp(App):
             self.run_clean_scan()
         elif button_id == "btn-clean-run":
             self.run_clean_execution()
+        elif button_id == "btn-clean-preview":
+            self.run_clean_execution(dry_run=True)
+        elif button_id == "btn-clean-undo":
+            self.run_undo()
         elif button_id == "btn-opt-drop-caches":
             self.run_tweak("drop_caches")
         elif button_id == "btn-opt-flush-dns":
@@ -355,6 +370,7 @@ class MarmotApp(App):
         elif button_id == "btn-uninstall-purge":
             self.run_purge_execution()
         elif button_id == "btn-analyzer-scan":
+            self.analyzer.invalidate()
             self.refresh_analyzer()
         elif button_id == "btn-analyzer-up":
             # Navigate to parent
@@ -364,57 +380,81 @@ class MarmotApp(App):
                 self.analyzer_path_lbl.update(f"Current Directory: {self.analyzer.current_path}")
                 self.refresh_analyzer()
 
-    def run_clean_scan(self) -> None:
-        self.clean_log.write("Starting storage scan...")
-        self.clean_scan_data = self.cleaner.scan()
-        self.clean_log.write("Scan completed successfully.\n")
-        
-        # Display sizes inside checkboxes
-        for key, val in self.clean_scan_data.items():
-            self.clean_log.write(f"- [bold]{val['name']}[/]: {val['size_str']} ({val['desc']})")
-            
-            # Update check label with size info dynamically
-            if key == 'user_cache':
-                self.query_one("#chk-user-cache", Checkbox).label = f"User Caches: {val['size_str']}"
-            elif key == 'trash':
-                self.query_one("#chk-trash", Checkbox).label = f"System Trash Bin: {val['size_str']}"
-            elif key == 'pkg_cache':
-                self.query_one("#chk-pkg-cache", Checkbox).label = f"{val['name']}: {val['size_str']}"
-            elif key == 'systemd_logs':
-                self.query_one("#chk-systemd-logs", Checkbox).label = f"Systemd Journal Logs: {val['size_str']}"
-            elif key == 'dev_junk':
-                self.query_one("#chk-dev-junk", Checkbox).label = f"Developer Build Files: {val['size_str']}"
+    # Scan/clean can take long (du of ~/.cache, pkexec password prompt): run them off the UI thread.
+    def _set_cleaner_busy(self, busy: bool) -> None:
+        for bid in ("btn-clean-scan", "btn-clean-preview", "btn-clean-run", "btn-clean-undo"):
+            self.query_one(f"#{bid}", Button).disabled = busy
 
-    def run_clean_execution(self) -> None:
+    def run_clean_scan(self) -> None:
+        self._set_cleaner_busy(True)
+        self.clean_log.write("Scanning storage...")
+        self.run_worker(self._clean_scan_worker, thread=True, exclusive=True, group="cleaner")
+
+    def _clean_scan_worker(self) -> None:
+        data = self.cleaner.scan()
+        self.call_from_thread(self._show_clean_scan, data)
+
+    def _show_clean_scan(self, data: dict) -> None:
+        previously = set(self.clean_items.selected) if self.clean_scan_data else {"user_cache", "trash"}
+        self.clean_scan_data = data
+        self.clean_items.clear_options()
+        self.clean_items.add_options([
+            (f"{v['name']}: {v['size_str']}" + (" [dim](root)[/dim]" if v['requires_sudo'] else ""), k, k in previously)
+            for k, v in data.items()])
+        children = data.get('user_cache', {}).get('children', [])
+        self.clean_cache.clear_options()
+        self.clean_cache.add_options([(f"{c['name']}: {c['size_str']}", c['path'], True) for c in children[:40]])
+        self.clean_cache.display = self.clean_cache_lbl.display = bool(children)
+        for v in data.values():
+            self.clean_log.write(f"- [bold]{v['name']}[/]: {v['size_str']} [dim]({v['desc']})[/]")
+        self.clean_log.write("Scan completed.\n")
+        self._set_cleaner_busy(False)
+
+    def _clean_args(self) -> dict:
+        cache = list(self.clean_cache.selected)
+        children = self.clean_scan_data.get('user_cache', {}).get('children', [])
+        # folders beyond the 40 shown are cleaned only when every shown one is ticked
+        if len(children) > 40 and len(cache) == min(40, len(children)):
+            cache = [c['path'] for c in children]
+        return {'selected': cache, 'use_trash': self.query_one("#chk-use-trash", Checkbox).value}
+
+    def run_clean_execution(self, dry_run: bool = False) -> None:
         if not self.clean_scan_data:
-            self.clean_log.write("[warning]Please scan storage first before cleaning.[/]")
+            self.clean_log.write("[yellow]Please scan storage first before cleaning.[/]")
             return
-            
-        chk_mapping = {
-            'user_cache': "#chk-user-cache",
-            'trash': "#chk-trash",
-            'pkg_cache': "#chk-pkg-cache",
-            'systemd_logs': "#chk-systemd-logs",
-            'dev_junk': "#chk-dev-junk"
-        }
-        
+        items = [i for i in self.clean_items.selected if i in self.clean_scan_data]
+        if not items:
+            self.clean_log.write("[yellow]Nothing selected.[/]")
+            return
+        self._set_cleaner_busy(True)
+        args = self._clean_args()
+        self.run_worker(lambda: self._clean_worker(items, dry_run, args), thread=True, exclusive=True, group="cleaner")
+
+    def _clean_worker(self, items: list, dry_run: bool, args: dict) -> None:
         cleaned_any = False
-        for item_id, selector in chk_mapping.items():
-            if item_id not in self.clean_scan_data:
-                continue  # e.g. no package cache on an unsupported distro
-            chk = self.query_one(selector, Checkbox)
-            if chk.value:
-                self.clean_log.write(f"Cleaning {self.clean_scan_data[item_id]['name']}...")
-                success, msg = self.cleaner.clean(item_id, self.clean_scan_data)
-                if success:
-                    self.clean_log.write(f"[success]✓ {msg}[/]")
-                    cleaned_any = True
-                else:
-                    self.clean_log.write(f"[danger]✗ {msg}[/]")
-                    
+        for item_id in items:
+            name = self.clean_scan_data[item_id]['name']
+            self.call_from_thread(self.clean_log.write, f"{'Previewing' if dry_run else 'Cleaning'} {name}...")
+            success, msg = self.cleaner.clean(
+                item_id, self.clean_scan_data, dry_run=dry_run, use_trash=args['use_trash'],
+                selected=args['selected'] if item_id == 'user_cache' else None)
+            style = "green" if success else "red"
+            self.call_from_thread(self.clean_log.write, f"[{style}]{'✓' if success else '✗'} {msg}[/]")
+            cleaned_any |= success and not dry_run
         if cleaned_any:
-            # Refresh Scan data
-            self.run_clean_scan()
+            self.analyzer.invalidate()
+            self._clean_scan_worker()  # refresh sizes (still in this worker thread)
+        else:
+            self.call_from_thread(self._set_cleaner_busy, False)
+
+    def run_undo(self) -> None:
+        entry, restored, errors = trash.undo_last()
+        if entry is None:
+            self.clean_log.write("[yellow]Nothing to undo (only actions that moved files to Trash can be undone).[/]")
+            return
+        self.clean_log.write(f"[green]↶ Undid '{entry['action']}' from {entry['ts']}: restored {len(restored)} item(s)[/]")
+        for e in errors:
+            self.clean_log.write(f"[red]✗ {e}[/]")
 
     # --- UNINSTALLER TAB LOGIC ---
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -433,7 +473,8 @@ class MarmotApp(App):
             if item and hasattr(item, "package_info"):
                 pkg = item.package_info
                 
-                removal = self.uninstaller.preview_removal(pkg['name'])
+                source = pkg.get('source', 'system')
+                removal = self.uninstaller.preview_removal(pkg['name'], source)
                 if removal is None:
                     removal_text = "\n\n[bold red]Cannot preview removal (package required by others?). Purge disabled.[/]"
                 else:
@@ -442,12 +483,13 @@ class MarmotApp(App):
                     if extra:
                         removal_text += f"\n[bold yellow]Warning: {len(extra)} other package(s) will also be removed.[/]"
 
-                remnants = self.uninstaller.find_remnants(pkg['name'])
+                remnants = self.uninstaller.find_remnants(pkg['name'], source)
                 self.uninstall_remnants.clear_options()
                 self.uninstall_remnants.add_options([(f"{r['path']} ({r['size_str']})", r['path']) for r in remnants])
                 self.uninstall_remnants.display = bool(remnants)
                 remnant_text = ("\n\n[bold yellow]Remnant directories found (tick to delete them too):[/]"
-                                if remnants else "\n\nNo config/cache remnants detected.")
+                                if remnants else "\n\nNo config/cache remnants detected."
+                if source == 'system' else "\n\nApp data in ~/.var/app is removed with it.")
 
                 info = (
                     f"[bold]{pkg['name']}[/bold]\n"
@@ -458,6 +500,7 @@ class MarmotApp(App):
                 )
                 self.uninstall_info.update(info)
                 self.selected_package = pkg['name']
+                self.selected_source = source
                 self.uninstall_btn.disabled = removal is None
                 
         elif event.list_view.id == "list-analyzer":
@@ -472,56 +515,67 @@ class MarmotApp(App):
     def run_purge_execution(self) -> None:
         if not hasattr(self, "selected_package"):
             return
-            
+        self.uninstall_btn.disabled = True
         self.uninstall_log.write(f"Executing purge on {self.selected_package}...")
-        success, msg = self.uninstaller.uninstall(self.selected_package, list(self.uninstall_remnants.selected))
-        
+        args = (self.selected_package, list(self.uninstall_remnants.selected), self.selected_source)
+        self.run_worker(lambda: self._purge_worker(*args), thread=True, exclusive=True, group="uninstall")
+
+    def _purge_worker(self, package: str, remnants: list, source: str) -> None:
+        success, msg = self.uninstaller.uninstall(package, remnants, source)
+        self.call_from_thread(self._purge_done, success, msg)
+
+    def _purge_done(self, success: bool, msg: str) -> None:
         if success:
-            self.uninstall_log.write(f"[success]✓ {msg}[/]")
+            self.uninstall_log.write(f"[green]✓ {msg}[/]")
             self.uninstall_info.update("Select a package from the list to view details.")
-            self.uninstall_btn.disabled = True
             self.uninstall_remnants.clear_options()
             self.uninstall_remnants.display = False
-            # Refresh package list
             self.refresh_packages_list(self.uninstall_search.value)
         else:
-            self.uninstall_log.write(f"[danger]✗ {msg}[/]")
+            self.uninstall_log.write(f"[red]✗ {msg}[/]")
+            self.uninstall_btn.disabled = False
 
     # --- OPTIMIZER TAB LOGIC ---
     def run_tweak(self, tweak_id: str) -> None:
         self.optimize_log.write(f"Running optimization task: {tweak_id}...")
         success, msg = self.optimizer.run_optimization(tweak_id)
         if success:
-            self.optimize_log.write(f"[success]✓ {msg}[/]\n")
+            self.optimize_log.write(f"[green]✓ {msg}[/]\n")
         else:
-            self.optimize_log.write(f"[danger]✗ {msg}[/]\n")
+            self.optimize_log.write(f"[red]✗ {msg}[/]\n")
 
     # --- ANALYZER TAB LOGIC ---
     def refresh_analyzer(self) -> None:
         self.analyzer_list.clear()
         self.analyzer_path_lbl.update(f"Current Directory: [bold]{self.analyzer.current_path}[/bold] [yellow](Scanning...)[/yellow]")
-        
-        # Insert a visual loading feedback message into the list (wrapped in ListItem so clear() can remove it)
         self.analyzer_list.append(ListItem(Label(" Scanning directory contents, please wait...", classes="analyzer-loading-msg")))
-        
-        # Offload the blocking filesystem scan to a background thread worker
-        self.run_worker(self._scan_analyzer_worker, thread=True, exclusive=True)
-        
+        # exclusive=True cancels the previous scan when the user navigates before it finishes
+        self.run_worker(self._scan_analyzer_worker, thread=True, exclusive=True, group="analyzer")
+
     def _scan_analyzer_worker(self) -> None:
-        # Executes in a background thread to prevent UI freezing
-        items = self.analyzer.scan_current()
-        
+        worker = get_current_worker()
+        path = self.analyzer.current_path
+
+        def progress(done: int, total: int, name: str) -> None:
+            self.call_from_thread(self.analyzer_path_lbl.update,
+                                  f"Current Directory: [bold]{path}[/bold] [yellow]({done}/{total}: {name})[/yellow]")
+        try:
+            items = self.analyzer.scan_current(progress=progress, cancelled=lambda: worker.is_cancelled)
+        except ScanCancelled:
+            return
+
         def update_ui():
             self.analyzer_list.clear()
-            self.analyzer_path_lbl.update(f"Current Directory: [bold]{self.analyzer.current_path}[/bold]")
+            total = self.analyzer.format_size(sum(i['size'] for i in items))
+            self.analyzer_path_lbl.update(f"Current Directory: [bold]{path}[/bold]  [dim]total {total}[/dim]")
             if not items:
                 self.analyzer_list.append(ListItem(Label(" (Empty Directory)", classes="analyzer-loading-label")))
             else:
                 for it in items:
                     self.analyzer_list.append(DiskListItem(it))
-                    
-        # Safely schedule the UI updates back on the main thread
-        self.call_from_thread(update_ui)
+
+        if not worker.is_cancelled:
+            self.call_from_thread(update_ui)
 
 
 def main() -> None:

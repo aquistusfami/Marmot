@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format: [Keep a Changel
 
 ## [Unreleased]
 
+### Added
+- Undo: developer build folders and uninstall remnants go to the freedesktop Trash; `marmot undo` (or the Undo button) restores the last batch. Every action is logged to `~/.local/state/marmot/history.jsonl` (`marmot history`).
+- Dry-run for every cleaner item (Preview button, `marmot clean --dry-run`).
+- Package backends for dnf (dnf4/dnf5), zypper and apk, plus Flatpak apps in the uninstaller.
+- Command line: `marmot status|scan|clean|undo|history`, with `--json` output.
+- Cleaner: per-folder `~/.cache` selection, orphaned packages, unused Flatpak runtimes, Docker/Podman unused data, old Snap revisions.
+- Disk Analyzer: cached directory sizes (instant back/forward), progress, cancel on navigation, percentage bars, stays on one filesystem.
+
+### Changed
+- Scans, cleaning and uninstalling run off the UI thread, so the TUI no longer freezes during a pkexec prompt.
+
+### Fixed
+- Operation logs printed raw `[success]` markup instead of colours.
+- Journal size was always reported as 0 when `journalctl` printed sizes like `1.2G`.
+
 ## [1.1.0]
 
 ### Added

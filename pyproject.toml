@@ -19,7 +19,7 @@ Homepage = "https://github.com/aquistusfami/Marmot"
 Issues = "https://github.com/aquistusfami/Marmot/issues"
 
 [project.scripts]
-marmot = "marmot.app:main"
+marmot = "marmot.cli:main"
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]

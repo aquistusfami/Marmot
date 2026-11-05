@@ -268,3 +268,22 @@ ProgressBar.-complete > .bar--bar {
     text-style: italic;
 }
 
+
+#list-clean-items {
+    height: auto;
+    max-height: 14;
+}
+
+#list-clean-cache {
+    height: auto;
+    max-height: 12;
+}
+
+.button-row {
+    height: auto;
+}
+
+.button-row Button {
+    margin-right: 1;
+    min-width: 10;
+}

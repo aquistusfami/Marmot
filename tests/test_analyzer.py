@@ -21,29 +21,29 @@ class TestDiskAnalyzer(unittest.TestCase):
         self.analyzer.set_path('/invalid/path')
         self.assertEqual(self.analyzer.current_path, old_path)
 
-    @patch('os.lstat')
-    @patch('os.walk')
-    def test_recursive_size(self, mock_walk, mock_lstat):
-        import stat
-        # Mock file lstat
-        file_stat = MagicMock()
-        file_stat.st_mode = stat.S_IFREG
-        file_stat.st_size = 500
-        
-        # Mock dir lstat
-        dir_stat = MagicMock()
-        dir_stat.st_mode = stat.S_IFDIR
-        dir_stat.st_size = 4096
-        
-        mock_lstat.side_effect = lambda path: file_stat if 'file' in str(path) else dir_stat
-        
-        mock_walk.return_value = [
-            ('/tmp/test', (), ('file1.txt', 'file2.txt')),
-        ]
-        
-        size = self.analyzer._recursive_size('/tmp/test')
-        # 2 files * 500 = 1000 bytes
-        self.assertEqual(size, 1000)
+    def test_recursive_size(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "sub").mkdir()
+            Path(d, "a.bin").write_bytes(b"x" * 600)
+            Path(d, "sub", "b.bin").write_bytes(b"x" * 400)
+            Path(d, "link").symlink_to(Path(d, "a.bin"))  # symlinks are not counted twice
+            self.assertEqual(self.analyzer._recursive_size(d), 1000)
+            # cached: deleting a file does not change the answer until invalidate()
+            Path(d, "a.bin").unlink()
+            self.assertEqual(self.analyzer._recursive_size(d), 1000)
+            self.analyzer.invalidate()
+            self.assertEqual(self.analyzer._recursive_size(d), 400)
+
+    def test_scan_cancel(self):
+        import tempfile
+
+        from marmot.analyzer import ScanCancelled
+        with tempfile.TemporaryDirectory() as d:
+            Path(d, "sub").mkdir()
+            self.analyzer.set_path(d)
+            with self.assertRaises(ScanCancelled):
+                self.analyzer.scan_current(cancelled=lambda: True)
 
     @patch('os.scandir')
     @patch('marmot.analyzer.DiskAnalyzer._recursive_size', return_value=1200)
