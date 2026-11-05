@@ -68,17 +68,18 @@ class TestPackageUninstaller(unittest.TestCase):
             Path.is_dir = orig_is_dir
 
     @patch('subprocess.run')
-    @patch('shutil.rmtree')
-    def test_uninstall_success(self, mock_rmtree, mock_run):
+    @patch('marmot.trash.move_to_trash', return_value="curl")
+    def test_uninstall_success(self, mock_trash, mock_run):
         mock_res = MagicMock()
         mock_res.returncode = 0
         mock_run.return_value = mock_res
-        
-        success, msg = self.uninstaller.uninstall("curl", delete_remnants=[str(Path.home() / ".config" / "curl")])
+        remnant = str(Path.home() / ".config" / "curl")
+
+        success, msg = self.uninstaller.uninstall("curl", delete_remnants=[remnant])
         self.assertTrue(success)
         self.assertIn("purged successfully", msg)
-        self.assertIn("Cleared user config remnants", msg)
-        mock_rmtree.assert_called_once_with(str(Path.home() / ".config" / "curl"), ignore_errors=True)
+        self.assertIn("Moved remnants to Trash", msg)
+        mock_trash.assert_called_once_with(remnant)
 
     @patch('subprocess.run')
     def test_uninstall_failure(self, mock_run):
@@ -163,12 +164,12 @@ class TestPackageUninstaller(unittest.TestCase):
         self.assertIn("Error during purge execution", msg)
 
     @patch('subprocess.run')
-    @patch('shutil.rmtree', side_effect=Exception("Delete failed"))
-    def test_uninstall_remnant_exception(self, mock_rmtree, mock_run):
+    @patch('marmot.trash.move_to_trash', side_effect=OSError("Delete failed"))
+    def test_uninstall_remnant_exception(self, mock_trash, mock_run):
         mock_res = MagicMock()
         mock_res.returncode = 0
         mock_run.return_value = mock_res
-        
+
         success, msg = self.uninstaller.uninstall("curl", delete_remnants=[str(Path.home() / ".config" / "curl")])
         self.assertTrue(success)
-        self.assertNotIn("Cleared user config remnants", msg)
+        self.assertNotIn("Moved remnants", msg)

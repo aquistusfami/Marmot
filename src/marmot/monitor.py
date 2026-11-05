@@ -219,3 +219,48 @@ class SystemMonitor:
             return partitions
         except Exception:
             return []
+
+    # ---- extras for the dashboard -------------------------------------------
+
+    @staticmethod
+    def is_physical_iface(iface: str) -> bool:
+        """Real NICs have a backing device; docker0, veth*, br-*, virbr*, tun* do not."""
+        return os.path.exists(f"/sys/class/net/{iface}/device")
+
+    def get_system_info(self) -> dict:
+        info = {'uptime_s': 0.0, 'load': (0.0, 0.0, 0.0), 'cpus': os.cpu_count() or 1}
+        try:
+            with open('/proc/uptime') as f:
+                info['uptime_s'] = float(f.read().split()[0])
+            info['load'] = os.getloadavg()
+        except (OSError, ValueError):
+            pass
+        return info
+
+    def get_top_processes(self, n: int = 8) -> list:
+        """Top processes by CPU (then memory) since the previous call, like `top` (100% = one core)."""
+        hz = os.sysconf('SC_CLK_TCK')
+        page = os.sysconf('SC_PAGE_SIZE')
+        now = time.time()
+        dt = now - getattr(self, '_proc_time', now)
+        prev = getattr(self, '_proc_ticks', {})
+        ticks, procs = {}, []
+        for pid in os.listdir('/proc'):
+            if not pid.isdigit():
+                continue
+            try:
+                with open(f'/proc/{pid}/stat') as f:
+                    raw = f.read()
+            except OSError:
+                continue  # process exited while we were reading
+            name = raw[raw.find('(') + 1:raw.rfind(')')]
+            rest = raw[raw.rfind(')') + 2:].split()
+            if len(rest) < 22:
+                continue
+            t = int(rest[11]) + int(rest[12])  # utime + stime
+            ticks[pid] = t
+            cpu = (t - prev[pid]) / hz / dt * 100 if dt > 0 and pid in prev else 0.0
+            procs.append({'pid': int(pid), 'name': name, 'cpu': max(cpu, 0.0), 'mem': int(rest[21]) * page})
+        self._proc_ticks, self._proc_time = ticks, now
+        procs.sort(key=lambda p: (p['cpu'], p['mem']), reverse=True)
+        return procs[:n]

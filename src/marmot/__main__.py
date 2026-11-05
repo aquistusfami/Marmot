@@ -1,3 +1,5 @@
-from marmot.app import main
+import sys
 
-main()
+from marmot.cli import main
+
+sys.exit(main())

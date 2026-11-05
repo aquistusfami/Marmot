@@ -98,3 +98,89 @@ class TestDevJunk(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+DNF_REMOVE = """Package                     Arch   Version         Repository      Size
+Removing:
+ python3-requests           noarch 0:2.34.2-2.fc45 fedora     679.2 KiB
+Removing unused dependencies:
+ python3-idna               noarch 0:3.18-2.fc45   fedora     523.7 KiB
+ python3-urllib3+socks      noarch 0:2.8.0-3.fc45  updates      0.0   B
+
+Transaction Summary:
+ Removing:          3 packages
+"""
+
+ZYPPER_REMOVE = """Reading installed packages...
+The following 3 packages are going to be REMOVED:
+  libexpat1 python313-requests
+  python313-urllib3
+
+3 packages to remove.
+"""
+
+ZYPPER_UNNEEDED = """S  | Repository | Name        | Version | Arch
+---+------------+-------------+---------+-------
+i  | repo-oss   | libfoo1     | 1.0-1.1 | x86_64
+i  | repo-oss   | python3-bar | 2.0-2.1 | noarch
+"""
+
+
+class TestMoreBackends(unittest.TestCase):
+    def test_dnf_remove_preview(self):
+        self.assertEqual(pkgmgr._parse_dnf_remove(DNF_REMOVE),
+                         ["python3-requests", "python3-idna", "python3-urllib3+socks"])
+
+    def test_dnf_failed_preview_is_empty(self):
+        out = "Failed to resolve the transaction:\nProblem 1: ... protected packages: dnf5\n"
+        self.assertEqual(pkgmgr._parse_dnf_remove(out), [])
+
+    def test_zypper(self):
+        self.assertEqual(pkgmgr._parse_zypper_remove(ZYPPER_REMOVE),
+                         ["libexpat1", "python313-requests", "python313-urllib3"])
+        self.assertEqual(pkgmgr._parse_zypper_table(ZYPPER_UNNEEDED), ["libfoo1", "python3-bar"])
+
+    def test_apk(self):
+        info = "alpine-baselayout-3.7.2-r1 - Alpine base dir structure\nca-certificates-bundle-20250911-r0 - Certs\n"
+        pkgs = pkgmgr._parse_apk_info(info)
+        self.assertEqual([(p['name'], p['version']) for p in pkgs],
+                         [("alpine-baselayout", "3.7.2-r1"), ("ca-certificates-bundle", "20250911-r0")])
+        self.assertEqual(pkgmgr._parse_apk_del("(1/2) Purging curl (8.23.0-r0)\n(2/2) Purging libcurl (8)\nOK: 8 MiB\n"),
+                         ["curl", "libcurl"])
+
+    def test_detect_order(self):
+        with patch('shutil.which', side_effect=lambda t: t in ("dnf", "rpm", "zypper")):
+            self.assertEqual(pkgmgr.detect(), "dnf")
+        with patch('shutil.which', side_effect=lambda t: t == "apk"):
+            self.assertEqual(pkgmgr.detect(), "apk")
+        with patch('shutil.which', return_value=None):
+            self.assertIsNone(pkgmgr.detect())
+
+    def test_query_empty_is_none(self):
+        with patch('subprocess.run', return_value=MagicMock(stdout=b"")):
+            self.assertIsNone(pkgmgr.query(["x"], pkgmgr._parse_lines))
+        with patch('subprocess.run', side_effect=OSError):
+            self.assertIsNone(pkgmgr.query(["x"], pkgmgr._parse_lines))
+
+
+class TestFlatpak(unittest.TestCase):
+    def _un(self):
+        un = PackageUninstaller(backend="pacman")
+        un.flatpak = pkgmgr.FLATPAK
+        return un
+
+    @patch('subprocess.Popen')
+    def test_lists_both_sources(self, mock_popen):
+        outs = iter([(PACMAN_QI.encode(), None), (b"org.gimp.GIMP\t3.0.4\tGNU Image Manipulation Program\n", None)])
+        mock_popen.return_value.communicate.side_effect = lambda: next(outs)
+        pkgs = self._un().list_installed_packages()
+        self.assertEqual({p['name']: p['source'] for p in pkgs},
+                         {"git": "system", "niri": "system", "org.gimp.GIMP": "flatpak"})
+
+    @patch('subprocess.run')
+    def test_flatpak_uninstall_has_no_pkexec(self, mock_run):
+        mock_run.return_value = MagicMock(returncode=0)
+        ok, msg = self._un().uninstall("org.gimp.GIMP", source="flatpak")
+        self.assertTrue(ok)
+        self.assertEqual(mock_run.call_args.args[0], ["flatpak", "uninstall", "-y", "--delete-data", "org.gimp.GIMP"])
+        self.assertEqual(self._un().preview_removal("org.gimp.GIMP", "flatpak"), ["org.gimp.GIMP"])

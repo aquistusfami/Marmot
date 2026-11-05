@@ -44,13 +44,32 @@ Upgrade with `uv tool upgrade marmot-tui`, remove with `uv tool uninstall marmot
 
 **Supported distributions**
 
-| Family | Package backend | Status |
-|---|---|---|
-| Debian, Ubuntu, Mint, Pop!_OS, Kali | apt / dpkg | full |
-| Arch, Manjaro, EndeavourOS, CachyOS | pacman | full |
-| Others (Fedora, openSUSE, Alpine...) | none yet | Monitor, Cleaner (no package cache), Analyzer, Optimizer |
+| Family | Package backend |
+|---|---|
+| Debian, Ubuntu, Mint, Pop!_OS, Kali | apt / dpkg |
+| Arch, Manjaro, EndeavourOS, CachyOS | pacman |
+| Fedora, RHEL, Rocky, Alma | dnf (dnf4 and dnf5) |
+| openSUSE Tumbleweed / Leap | zypper |
+| Alpine | apk |
+| any distro | Flatpak apps (uninstall, unused runtimes) |
+
+Docker/Podman and Snap cleanup appear automatically when those tools are installed.
 
 Journal cleaning and service reset need systemd.
+
+### Command line
+
+Every cleaning action also works without the TUI (scripts, cron, SSH):
+
+```bash
+marmot status [--json]                    # CPU, RAM, disks, battery
+marmot scan [--json]                      # what can be cleaned, with item ids
+marmot clean user_cache dev_junk --dry-run
+marmot clean user_cache --keep-cache mozilla yay --yes
+marmot undo                               # restore what the last action moved to Trash
+marmot history
+marmot optimize [ID] [--dry-run]           # maintenance tasks and whether they apply
+```
 
 ### Keyboard Navigation & Controls
 

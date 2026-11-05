@@ -2,7 +2,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from marmot import pkgmgr
+from marmot import pkgmgr, trash
 
 # Only direct children of these dirs (relative to $HOME) may be deleted as remnants.
 REMNANT_PARENTS = (".config", ".local/share", ".cache")
@@ -12,39 +12,42 @@ class PackageUninstaller:
     def __init__(self, backend: str | None = None):
         self.home = Path.home()
         self.pm = pkgmgr.get(backend)
+        self.flatpak = pkgmgr.flatpak() if backend is None else None
 
-    def list_installed_packages(self, search_query: str = "") -> list:
+    def _list(self, pm: dict, source: str) -> list:
+        process = subprocess.Popen(pm['list_cmd'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        out, _ = process.communicate()
+        return [{**p, 'source': source} for p in pm['parse_list'](out.decode("utf-8", errors="ignore"))]
+
+    def list_installed_packages(self, search_query: str = "", limit: int | None = 60) -> list:
         packages = []
-        if not self.pm:
-            return packages
-        try:
-            process = subprocess.Popen(self.pm['list_cmd'], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
-            out, _ = process.communicate()
-            q = search_query.lower()
-            for pkg in self.pm['parse_list'](out.decode("utf-8", errors="ignore")):
-                if not q or q in pkg['name'].lower() or q in pkg['summary'].lower():
-                    packages.append(pkg)
-            packages.sort(key=lambda x: x['name'])
-        except Exception:
-            pass
-        return packages[:60] # limit for smooth TUI scrolling
+        q = search_query.lower()
+        for pm, source in ((self.pm, 'system'), (self.flatpak, 'flatpak')):
+            if not pm:
+                continue
+            try:
+                packages += [p for p in self._list(pm, source)
+                             if not q or q in p['name'].lower() or q in p['summary'].lower()]
+            except Exception:
+                pass
+        packages.sort(key=lambda x: x['name'])
+        return packages[:limit]
 
-    def preview_removal(self, package_name: str) -> list | None:
+    def preview_removal(self, package_name: str, source: str = 'system') -> list | None:
         """Packages the package manager would remove (dependants/orphans included), or None on error."""
+        if source == 'flatpak':
+            return [package_name] if self.flatpak else None
         if not self.pm:
             return None
-        try:
-            res = subprocess.run(self.pm['preview_cmd'](package_name), capture_output=True)
-            if res.returncode != 0:
-                return None
-            return self.pm['parse_preview'](res.stdout.decode("utf-8", errors="ignore"))
-        except Exception:
-            return None
+        # exit codes are not trusted (dnf --assumeno always "fails"): an empty parse means it would not work
+        return pkgmgr.query(self.pm['preview_cmd'](package_name), self.pm['parse_preview'])
 
     def _remnant_parents(self) -> list:
         return [self.home / d for d in REMNANT_PARENTS]
 
-    def find_remnants(self, package_name: str) -> list:
+    def find_remnants(self, package_name: str, source: str = 'system') -> list:
+        if source == 'flatpak':
+            return []  # `flatpak uninstall --delete-data` already removes ~/.var/app/<id>
         # Exact (case-insensitive) name match only: a substring match made "git" hit ~/.config/gitkraken.
         want = package_name.lower()
         folders = []
@@ -87,11 +90,18 @@ class PackageUninstaller:
             i += 1
         return f"{size_bytes:.2f} {size_name[i]}"
 
-    def uninstall(self, package_name: str, delete_remnants: list = None) -> tuple[bool, str]:
+    def uninstall(self, package_name: str, delete_remnants: list = None, source: str = 'system') -> tuple[bool, str]:
         success = False
         msg = ""
-        if not self.pm:
-            return False, "Unsupported distribution: no apt or pacman found."
+        pm = self.flatpak if source == 'flatpak' else self.pm
+        if not pm:
+            return False, "Unsupported distribution: no supported package manager found."
+        if not pm['privileged']:
+            res = subprocess.run(pm['remove_cmd'](package_name), capture_output=True)
+            if res.returncode != 0:
+                return False, f"Failed to remove: {res.stderr.decode('utf-8', errors='ignore').strip()}"
+            trash.record("uninstall", detail=f"{source}:{package_name}")
+            return True, f"{pm['label']} app {package_name} removed (with its data)."
         try:
             cmd = ["pkexec", *self.pm['remove_cmd'](package_name)]
             res = subprocess.run(cmd, capture_output=True)
@@ -109,18 +119,18 @@ class PackageUninstaller:
         except Exception as e:
             msg = f"Error during purge execution: {str(e)}"
 
-        if success and delete_remnants:
-            import shutil
-            deleted_paths = []
-            for rpath in delete_remnants:
+        if success:
+            trashed = []
+            for rpath in delete_remnants or []:
                 if not self.is_safe_remnant(rpath):
                     continue
                 try:
-                    shutil.rmtree(rpath, ignore_errors=True)
-                    deleted_paths.append(rpath)
+                    trashed.append({'name': trash.move_to_trash(rpath), 'path': rpath})
                 except Exception:
                     pass
-            if deleted_paths:
-                msg += f" Cleared user config remnants: {', '.join([os.path.basename(p) for p in deleted_paths])}."
-                
+            if trashed:
+                msg += (f" Moved remnants to Trash (marmot undo restores them): "
+                        f"{', '.join(os.path.basename(t['path']) for t in trashed)}.")
+            trash.record("uninstall", trashed=trashed, detail=f"system:{package_name}")
+
         return success, msg

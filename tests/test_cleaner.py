@@ -85,7 +85,7 @@ class TestSystemCleaner(unittest.TestCase):
                 'paths_list': ['/home/user/Projects/test/node_modules', '/home/user/Projects/test/.venv']
             }
         }
-        success, msg = self.cleaner.clean('dev_junk', scan_details)
+        success, msg = self.cleaner.clean('dev_junk', scan_details, use_trash=False)
         self.assertTrue(success)
         self.assertEqual(msg, "Cleaned 2 build folder(s)")
         self.assertEqual(mock_rmtree.call_count, 2)
