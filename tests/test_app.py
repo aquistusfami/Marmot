@@ -107,6 +107,18 @@ class TestAppSafety(unittest.TestCase):
                 mv.assert_not_called()
         run(go())
 
+    def test_timers_after_exit_do_not_crash(self):
+        """Regression: interval/worker callbacks firing during shutdown raised NoMatches (flaky CI)."""
+        async def go():
+            app = MarmotApp()
+            async with app.run_test() as pilot:
+                await pilot.pause()
+            return app
+        app = run(go())
+        app.update_monitor_dashboard()
+        app.update_processes()
+        app._show_check("trim", {'applicable': True, 'status': "ok"})
+
     def test_number_keys_switch_tabs(self):
         async def go():
             app = MarmotApp()

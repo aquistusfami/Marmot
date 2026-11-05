@@ -222,23 +222,26 @@ class MarmotApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
+        # Widgets are looked up once: timers and worker callbacks can fire while the app is shutting down,
+        # when a query_one() by id would raise NoMatches.
+        self.w = {node.id: node for node in self.screen.query("*") if node.id}
         if "tokyo-night" in self.available_themes:
             self.theme = "tokyo-night"
-        self.clean_items = self.query_one("#list-clean-items", SelectionList)
-        self.clean_cache = self.query_one("#list-clean-cache", SelectionList)
-        self.clean_log = self.query_one("#clean-log", RichLog)
-        self.uninstall_search = self.query_one("#input-uninstall-search", Input)
-        self.uninstall_list = self.query_one("#list-packages", ListView)
-        self.uninstall_info = self.query_one("#lbl-uninstall-info", Static)
-        self.uninstall_remnants = self.query_one("#list-uninstall-remnants", SelectionList)
-        self.uninstall_btn = self.query_one("#btn-uninstall-purge", Button)
-        self.uninstall_log = self.query_one("#uninstall-log", RichLog)
-        self.analyzer_list = self.query_one("#list-analyzer", AnalyzerList)
-        self.analyzer_path_lbl = self.query_one("#lbl-analyzer-path", Static)
-        self.optimize_log = self.query_one("#opt-log", RichLog)
-        self.query_one("#clean-cache-card").display = False
+        self.clean_items = self.w["list-clean-items"]
+        self.clean_cache = self.w["list-clean-cache"]
+        self.clean_log = self.w["clean-log"]
+        self.uninstall_search = self.w["input-uninstall-search"]
+        self.uninstall_list = self.w["list-packages"]
+        self.uninstall_info = self.w["lbl-uninstall-info"]
+        self.uninstall_remnants = self.w["list-uninstall-remnants"]
+        self.uninstall_btn = self.w["btn-uninstall-purge"]
+        self.uninstall_log = self.w["uninstall-log"]
+        self.analyzer_list = self.w["list-analyzer"]
+        self.analyzer_path_lbl = self.w["lbl-analyzer-path"]
+        self.optimize_log = self.w["opt-log"]
+        self.w["clean-cache-card"].display = False
         self.uninstall_remnants.display = False
-        self.query_one("#proc-table", DataTable).add_columns("PID", "Name", "CPU %", "Memory")
+        self.w["proc-table"].add_columns("PID", "Name", "CPU %", "Memory")
 
         self.update_monitor_dashboard()
         self.update_processes()
@@ -248,7 +251,7 @@ class MarmotApp(App):
         self.refresh_optimizer_checks()
 
     def action_show_tab(self, tab: str) -> None:
-        self.query_one("#tabs-main", TabbedContent).active = tab
+        self.w["tabs-main"].active = tab
 
     def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
         if event.pane.id == "pane-analyzer" and not self.analyzer_list.children:
@@ -267,12 +270,12 @@ class MarmotApp(App):
 
         self.cpu_history.append(cpu)
         temp_s = f"   [dim]temp[/] {temp:.0f}°C" if temp is not None else ""
-        self.query_one("#cpu-text", Static).update(f"[b]{cpu:5.1f}%[/b]{temp_s}\n{bar(cpu)}")
-        self.query_one("#cpu-spark", Sparkline).data = list(self.cpu_history)
+        self.w["cpu-text"].update(f"[b]{cpu:5.1f}%[/b]{temp_s}\n{bar(cpu)}")
+        self.w["cpu-spark"].data = list(self.cpu_history)
 
         swap = (f"\n[dim]Swap[/] {human(mem['swap_used'])} / {human(mem['swap_total'])}\n{bar(mem['swap_percent'])}"
                 if mem['swap_total'] else "\n[dim]No swap[/]")
-        self.query_one("#mem-text", Static).update(
+        self.w["mem-text"].update(
             f"[dim]RAM[/]  {human(mem['used'])} / {human(mem['total'])}  [b]{mem['percent']:.0f}%[/b]\n"
             f"{bar(mem['percent'])}{swap}")
 
@@ -283,7 +286,7 @@ class MarmotApp(App):
         if bat.get('present') and bat.get('capacity') is not None:
             power = f" · {bat['power']:.1f} W" if bat.get('power') else ""
             lines.append(f"[dim]Battery[/] {bat['capacity']}% {bat['status']}{power}\n{bar(100 - bat['capacity'])}")
-        self.query_one("#sys-text", Static).update("\n".join(lines))
+        self.w["sys-text"].update("\n".join(lines))
 
         phys = {k: v for k, v in net.items() if self.monitor.is_physical_iface(k)} or net
         rx = sum(v['rx_speed'] for v in phys.values())
@@ -291,16 +294,16 @@ class MarmotApp(App):
         self.net_history.append(rx + tx)
         per_if = "\n".join(f"[dim]{escape(k)}[/] ↓{human(v['rx_speed'])}/s ↑{human(v['tx_speed'])}/s"
                            for k, v in phys.items())
-        self.query_one("#net-text", Static).update(f"[b]↓ {human(rx)}/s   ↑ {human(tx)}/s[/b]\n{per_if}")
-        self.query_one("#net-spark", Sparkline).data = list(self.net_history)
+        self.w["net-text"].update(f"[b]↓ {human(rx)}/s   ↑ {human(tx)}/s[/b]\n{per_if}")
+        self.w["net-spark"].data = list(self.net_history)
 
-        self.query_one("#disk-text", Static).update("\n".join(
+        self.w["disk-text"].update("\n".join(
             f"{escape(d['mountpoint']):<14} {bar(d['percent'], 30)} {d['percent']:5.1f}%  "
             f"[dim]{human(d['used'])} / {human(d['total'])} · {escape(d['device'])}[/]" for d in disks)
             or "No disks detected.")
 
     def update_processes(self) -> None:
-        table = self.query_one("#proc-table", DataTable)
+        table = self.w["proc-table"]
         table.clear()
         for p in self.monitor.get_top_processes(8):
             table.add_row(str(p['pid']), escape(p['name']), f"{p['cpu']:.1f}", human(p['mem']))
@@ -332,11 +335,11 @@ class MarmotApp(App):
 
     def _set_cleaner_busy(self, busy: bool) -> None:
         for bid in ("btn-clean-scan", "btn-clean-preview", "btn-clean-run", "btn-clean-undo"):
-            self.query_one(f"#{bid}", Button).disabled = busy
+            self.w[f"{bid}"].disabled = busy
 
     def run_clean_scan(self) -> None:
         self._set_cleaner_busy(True)
-        self.query_one("#clean-summary", Static).update("[yellow]Scanning…[/]")
+        self.w["clean-summary"].update("[yellow]Scanning…[/]")
         self.run_worker(self._clean_scan_worker, thread=True, exclusive=True, group="cleaner")
 
     def _clean_scan_worker(self) -> None:
@@ -354,7 +357,7 @@ class MarmotApp(App):
         self.clean_cache.clear_options()
         self.clean_cache.add_options([(f"{escape(c['name'])}  [dim]{c['size_str']}[/]", c['path'], True)
                                       for c in children[:40]])
-        self.query_one("#clean-cache-card").display = bool(children) and "user_cache" in self.clean_items.selected
+        self.w["clean-cache-card"].display = bool(children) and "user_cache" in self.clean_items.selected
         self.clean_log.write("[dim]Scan completed.[/]")
         self._update_clean_summary()
         self._set_cleaner_busy(False)
@@ -362,7 +365,7 @@ class MarmotApp(App):
     def on_selection_list_selected_changed(self, event: SelectionList.SelectedChanged) -> None:
         if event.selection_list.id in ("list-clean-items", "list-clean-cache") and self.clean_scan_data:
             children = self.clean_scan_data.get('user_cache', {}).get('children', [])
-            self.query_one("#clean-cache-card").display = bool(children) and "user_cache" in self.clean_items.selected
+            self.w["clean-cache-card"].display = bool(children) and "user_cache" in self.clean_items.selected
             self._update_clean_summary()
 
     def _update_clean_summary(self) -> None:
@@ -381,7 +384,7 @@ class MarmotApp(App):
         everything = sum(max(v['size'], 0) for v in self.clean_scan_data.values())
         extra = (f"\n[dim]+ {unknown} item(s) of unknown size[/]" if unknown else "") + \
                 (f"\n[dim]{root} item(s) will ask for your password[/]" if root else "")
-        self.query_one("#clean-summary", Static).update(
+        self.w["clean-summary"].update(
             f"Selected [b $success]{human(total)}[/] of {human(everything)} found{extra}")
 
     def _clean_args(self) -> dict:
@@ -390,7 +393,7 @@ class MarmotApp(App):
         # folders beyond the 40 shown are cleaned only when every shown one is ticked
         if len(children) > 40 and len(cache) == min(40, len(children)):
             cache = [c['path'] for c in children]
-        return {'selected': cache, 'use_trash': self.query_one("#chk-use-trash", Checkbox).value}
+        return {'selected': cache, 'use_trash': self.w["chk-use-trash"].value}
 
     def run_clean_execution(self, dry_run: bool = False) -> None:
         if not self.clean_scan_data:
@@ -463,7 +466,7 @@ class MarmotApp(App):
         self.uninstall_list.clear()
         self.uninstall_list.extend(PackageListItem(p) for p in self.current_packages)
         more = f" · showing {SHOWN_PACKAGES}, type to narrow" if len(matches) > SHOWN_PACKAGES else ""
-        self.query_one("#lbl-package-count", Label).update(
+        self.w["lbl-package-count"].update(
             f"[dim]{len(matches)} of {len(self.all_packages)} packages{more}[/]")
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
@@ -546,11 +549,11 @@ class MarmotApp(App):
 
     def _show_check(self, task_id: str, st: dict) -> None:
         icon = "[green]●[/]" if st['applicable'] else "[dim]○[/]"
-        self.query_one(f"#opt-status-{task_id}", Static).update(f"{icon} {escape(st['status'])}")
-        self.query_one(f"#opt-run-{task_id}", Button).disabled = not st['applicable']
+        self.w[f"opt-status-{task_id}"].update(f"{icon} {escape(st['status'])}")
+        self.w[f"opt-run-{task_id}"].disabled = not st['applicable']
 
     def run_tweak(self, task_id: str) -> None:
-        self.query_one(f"#opt-run-{task_id}", Button).disabled = True
+        self.w[f"opt-run-{task_id}"].disabled = True
         self.optimize_log.write(f"Running {task_id}…")
 
         def work() -> None:
@@ -627,7 +630,7 @@ class MarmotApp(App):
                 self.analyzer_list.append(ListItem(Label("[dim](empty)[/]")))
             else:
                 self.analyzer_list.extend(DiskListItem(it) for it in items)
-            if self.query_one("#tabs-main", TabbedContent).active == "pane-analyzer":
+            if self.w["tabs-main"].active == "pane-analyzer":
                 self.analyzer_list.focus()
 
         if not worker.is_cancelled:
